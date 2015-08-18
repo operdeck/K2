@@ -26,7 +26,7 @@ try(dev.off(),silent=T) # prevent graphics errors
 set.seed(314159)
 Sys.setlocale("LC_TIME", "C")
 findTuningParams <- F # set to T to use caret for finding model tuning parameters, otherwise direct model
-useSample <- T # set to true to quickly test changes on a subset of the training data
+useSample <- F # set to true to quickly test changes on a subset of the training data
 epoch <- now()
 
 # read data
@@ -58,6 +58,10 @@ dataMetrics$isBoolean <- rownames(dataMetrics) %in% symbolicFldNames[ sapply(sym
   
 print(head(dataMetrics))
 
+# Save a dataset with the vars with many distincts for review
+# NB: VAR_0200 seems to be a region, perhaps use that. But VAR_0274 is state already.
+dataSetManyDistincts <- train[, which(dataMetrics$nDistinct > 50 & dataMetrics$isSymbolic & !dataMetrics$isDate), with=F]
+
 # Deselect predictors with zero variance
 zeroVarianceColumns <- rownames(dataMetrics) [dataMetrics$zeroVar]
 cat("Removing zero variance columns:", zeroVarianceColumns, fill=T)
@@ -86,11 +90,11 @@ train <- processDateFlds(train, dateFldNames)
 test <- processDateFlds(test, dateFldNames)
 
 # Replace boolean fields by 1/0. NB TODO process like other symbolic fields
-for (col in rownames(dataMetrics) [dataMetrics$isBoolean]) {
-  cat("Boolean column: ", col, fill=T)
-  train[[col]] <- ifelse( train[[col]] == "true", 1, ifelse( train[[col]] == "false", 0, NA))
-  test[[col]] <- ifelse( test[[col]] == "true", 1, ifelse( test[[col]] == "false", 0, NA))
-}
+# for (col in rownames(dataMetrics) [dataMetrics$isBoolean]) {
+#   cat("Boolean column: ", col, fill=T)
+#   train[[col]] <- ifelse( train[[col]] == "true", 1, ifelse( train[[col]] == "false", 0, NA))
+#   test[[col]] <- ifelse( test[[col]] == "true", 1, ifelse( test[[col]] == "false", 0, NA))
+# }
 
 #cat("Near zero variance:",colnames(train) [nzv(train)],fill=TRUE)
 
@@ -100,22 +104,50 @@ train_dev <- as.data.frame(train)[ trainIndex,]
 train_val <- as.data.frame(train)[-trainIndex,]
 
 # Replace remaining symbolic fields by mean outcome
-remainingSymbolicColumns <- rownames(dataMetrics) [dataMetrics$isSymbolic & !dataMetrics$isBoolean & !dataMetrics$isDate]
+remainingSymbolicColumns <- rownames(dataMetrics) [dataMetrics$isSymbolic & !dataMetrics$isDate]
 cat("Symbinning remaining symbolic columns:", remainingSymbolicColumns, fill=T)
-
 for (colName in remainingSymbolicColumns) {
-  binner <- createSymBin2(train_dev, colName, "target")
+  cat("Symbinning", colName, fill=T)
+  binner <- createSymBin2(train_dev, colName, "target", threshold=0.01) # min casecount per bin
   sb.plotOne(binner, train_dev, train_val, test, colName, "target")
   train_dev[[colName]] <- applySymBin(binner, train_dev[[colName]])
   train_val[[colName]] <- applySymBin(binner, train_val[[colName]])
   test[[colName]]      <- applySymBin(binner, test[[colName]])
 }
 
+# Perhaps numerics should be replaced by mean outcome as well? Some are not numeric but categorical.
+# Maybe plot first
+# nb.plotAll(train_dev,train_val,test, "target")
+
 # Brute force NA imputation - not sure. Maybe not needed, and knn would be beter anyhow.
 train_dev <- imputeNAs(train_dev)
 train_val <- imputeNAs(train_val)
 test <- imputeNAs(test)
 
+# Correlations
+finalVars <- nearZeroVar(train_dev, saveMetrics=T)
+finalVarsZV <- rownames(finalVars) [finalVars$zeroVar | finalVars$nzv]
+cat("Zero and near-zero variance columns after data analysis (removed):", finalVarsZV, fill=T)
+train_dev <- train_dev[,!(names(train_dev) %in% finalVarsZV)]
+train_val <- train_val[,!(names(train_val) %in% finalVarsZV)]
+test      <- test[,!(names(test) %in% finalVarsZV)]
+
+cat("Correlation", fill=T)
+trainCor <- cor( sample_n(select(train_dev, -target), 1000))
+trainCor[is.na(trainCor)] <- 0
+#corrplot(trainCor, method="circle", type="upper", order = "hclust", addrect = 3)
+highlyCorrelatedVars <- rownames(trainCor) [findCorrelation(trainCor, cutoff=0.98)]
+if (length(highlyCorrelatedVars) > 0) {
+  cat("Removing highly correlated variables: ", highlyCorrelatedVars, fill=TRUE)
+  train_dev <- train_dev[!(names(train_dev) %in% highlyCorrelatedVars)]
+  train_val <- train_val[!(names(train_val) %in% highlyCorrelatedVars)]
+  test      <- test[!(names(test) %in% highlyCorrelatedVars)]
+  
+  #trainCor <- cor(select(imputeNAs(train_dev), -IsClick))
+  #corrplot(trainCor, method="circle", type="upper", order = "hclust", addrect = 3)
+} else {
+  print("No highly correlated variables according to trim.matrix")
+}
 
 ###########################
 # Fit model
@@ -136,6 +168,11 @@ if (findTuningParams) {
                                           # cv.folds=5
                                           # n.cores=2
                                           verbose= T))
+
+  cat("Duration:",modelTime,fill=T)
+  cat("Duration:",modelTime[3]/3600,"hrs",fill=T)
+  print(model)
+  
   #do this if model is from caret 'train'
   #trellis.par.set(caretTheme())
   #print( plot(model) )
@@ -143,25 +180,27 @@ if (findTuningParams) {
   #va <- varImp(model, scale = FALSE) # Caret variable importance
   #print(va)
   #print( plot(va, top=20) )
+  stop("Stopping after caret parameter tuning step")
   
 } else {
   modelTime <- system.time(model <- gbm(target ~ ., data = train_dev, 
                                         distribution = "bernoulli",
-                                        n.trees = 10,
-                                        interaction.depth = 10,
+                                        n.trees = 50,
+                                        interaction.depth = 5,
                                         shrinkage = 0.01,
                                         cv.folds=3,
                                         # n.cores=2
                                         verbose= T))
+  cat("Duration:",modelTime,fill=T)
+  cat("Duration:",modelTime[3]/3600,"hrs",fill=T)
+  print(model)
+  
   best.iter <- gbm.perf(model, method="cv")
   print(best.iter)
   print(head( summary(model, n.trees=best.iter), 30 )) # plot all and print top-N predictors
   print(pretty.gbm.tree(model, best.iter))
 }
 
-cat("Duration:",modelTime,fill=T)
-cat("Duration:",modelTime[3]/3600,"hrs",fill=T)
-print(model)
 
 # Get score on validation set
 # make predictions

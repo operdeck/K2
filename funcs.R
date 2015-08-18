@@ -14,6 +14,7 @@ defaultSymBinSizeThreshold = 0.001
 #  avgoutcome = average behaviour
 #  freq = number of cases as percentage
 # Sorted by increasing avgoutcome
+# TODO: fix for situation where none of the bins are above the threshold - currently errors
 createSymBin2 <- function(ds, fieldName, outcomeName, threshold = defaultSymBinSizeThreshold) 
 {
   val = ds[,fieldName]
@@ -49,7 +50,8 @@ createSymBin2 <- function(ds, fieldName, outcomeName, threshold = defaultSymBinS
   if (nrow(result) > 1) {
     return(select( result, -t))
   } else {
-    setnames(result, c('val','cases','avgoutcome','freq'))
+    #print(result)
+    setnames(result, c('val','cases','avgoutcome','freq','binindex'))
     return(result)
   }
 }
@@ -82,15 +84,15 @@ sb.plotOne <- function(binning,
                        fieldName, outcomeName,
                        plotFolder = NA)
 {
-  ds_dev_bins <- applySymBinIndex(binning, ds_dev[,fieldName])
+  ds_dev_bins <- applySymBinIndex(binning, ds_dev[[fieldName]])
   df_dev <- data.frame( ds_dev_bins, ds_dev[,outcomeName])
   names(df_dev) <- c('binindex','beh')
   
-  ds_val_bins <- applySymBinIndex(binning, ds_val[,fieldName])
+  ds_val_bins <- applySymBinIndex(binning, ds_val[[fieldName]])
   df_val <- data.frame( ds_val_bins, ds_val[,outcomeName])
   names(df_val) <- c('binindex','beh')
   
-  ds_tst_bins <- applySymBinIndex(binning, ds_tst[,fieldName])
+  ds_tst_bins <- applySymBinIndex(binning, ds_tst[[fieldName]])
   df_tst <- data.frame( ds_tst_bins )
   names(df_tst) <- c('binindex')
   
