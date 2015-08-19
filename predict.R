@@ -185,7 +185,7 @@ if (findTuningParams) {
 } else {
   modelTime <- system.time(model <- gbm(target ~ ., data = train_dev, 
                                         distribution = "bernoulli",
-                                        n.trees = 50,
+                                        n.trees = 300,
                                         interaction.depth = 5,
                                         shrinkage = 0.01,
                                         cv.folds=3,
