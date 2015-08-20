@@ -13,6 +13,11 @@ library(plyr)
 library(dplyr)
 library(pROC)
 
+# TODO: use xgboost vs gbm
+# See 
+# https://www.kaggle.com/michaelpawlus/springleaf-marketing-response/xgboost-example-0-76178
+# https://www.kaggle.com/michaelpawlus/springleaf-marketing-response/xgboost-example-0-76178/discussion
+
 macWD <- "~/Documents/science/kaggle/springleaf/K2"
 winWD <- "D:/usr/science/kaggle/springleaf/K2"
 if (file.exists(macWD)) {
@@ -25,8 +30,8 @@ source('funcs.R') # common funcs - inherited from previous Kaggle project
 try(dev.off(),silent=T) # prevent graphics errors
 set.seed(314159)
 Sys.setlocale("LC_TIME", "C")
-findTuningParams <- F # set to T to use caret for finding model tuning parameters, otherwise direct model
-useSample <- F # set to true to quickly test changes on a subset of the training data
+findTuningParams <- T # set to T to use caret for finding model tuning parameters, otherwise direct model
+useSample <- T # set to true to quickly test changes on a subset of the training data
 epoch <- now()
 
 # read data
@@ -149,22 +154,53 @@ if (length(highlyCorrelatedVars) > 0) {
   print("No highly correlated variables according to trim.matrix")
 }
 
+# Dump the data here. Taking the col names from our analysis but using the original data.
+# Just for the purpose of analyzing with ADM/PAD limiting the number of columns to < 1000 - hopefully.
+if (F) {
+  keep_cols <- names(train_dev)
+  test_ori <- fread("./data/test-2.csv", header = T, sep = ",",stringsAsFactors=T, nrows=1000) # just for cols
+  drop_cols <- setdiff(names(test_ori),keep_cols)
+  
+  train_ori <- fread("./data/train-2.csv", header = T, sep = ",",stringsAsFactors=T, drop=drop_cols)
+  test_ori <- fread("./data/test-2.csv", header = T, sep = ",",stringsAsFactors=T, drop=drop_cols)  
+  
+  cat("Dimension: ", dim(train_ori), fill=T)
+  write.csv(sample_n(train_ori, 10000), "./data/train-trunc-small.csv", row.names=FALSE)
+  write.csv(sample_n(test_ori, 10000), "./data/test-trunc-small.csv", row.names=FALSE)
+  write.csv(train_ori, "./data/train-trunc-full.csv", row.names=FALSE)
+  write.csv(test_ori, "./data/test-trunc-full.csv", row.names=FALSE)
+}
+
 ###########################
 # Fit model
 ###########################
 print('Fit model')
 if (findTuningParams) {
   # unfinished - see http://topepo.github.io/caret/training.html
+
+  train_dev$target <- as.factor(train_dev$target) # model needs factor
+  levels(train_dev$target) <- c("no", "yes") # predicting probs needs this for some reason
+  
+  fitControl <- trainControl(## 10-fold CV
+    method = "repeatedcv",
+    number = 5,
+    ## repeated ten times
+    repeats = 1,
+    classProbs = TRUE,
+    summaryFunction = twoClassSummary)
+  
   gbmGrid <- expand.grid(
-    interaction.depth = seq(10,20,by=10), # splits 
-    n.trees=seq(5,10,by=5),             # number of trees; more often better
-    shrinkage=c(0.01),           # learning rate parameter; smaller often better
+    interaction.depth = seq(10,30,by=10), # splits 
+    n.trees=c(100),             # number of trees; more often better
+    shrinkage=c(0.02,0.01,0.005),           # learning rate parameter; smaller often better
     n.minobsinnode=c(10))
   
   modelTime <- system.time(model <- train(target ~ ., data = train_dev, 
                                           method="gbm",
                                           tuneGrid=gbmGrid,
-                                          preProcess = c("knnImpute"),
+                                          #preProcess = c("knnImpute"),
+                                          metric = "ROC",
+                                          trControl = fitControl,
                                           # cv.folds=5
                                           # n.cores=2
                                           verbose= T))
@@ -173,13 +209,13 @@ if (findTuningParams) {
   cat("Duration:",modelTime[3]/3600,"hrs",fill=T)
   print(model)
   
-  #do this if model is from caret 'train'
-  #trellis.par.set(caretTheme())
-  #print( plot(model) )
+  trellis.par.set(caretTheme())
+  print( plot(model) )
   
-  #va <- varImp(model, scale = FALSE) # Caret variable importance
-  #print(va)
-  #print( plot(va, top=20) )
+  va <- varImp(model, scale = FALSE) # Caret variable importance
+  print(va)
+  print( plot(va, top=50) )
+  
   stop("Stopping after caret parameter tuning step")
   
 } else {
