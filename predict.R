@@ -38,7 +38,7 @@ if (useSample) {
 }
 
 ###########################
-# Fix up data
+# Data Analysis
 ###########################
 
 isDate <- function(vec) { 
@@ -61,6 +61,10 @@ print(head(dataMetrics))
 # Save a dataset with the vars with many distincts for review
 # NB: VAR_0200 seems to be a region, perhaps use that. But VAR_0274 is state already.
 dataSetManyDistincts <- train[, which(dataMetrics$nDistinct > 50 & dataMetrics$isSymbolic & !dataMetrics$isDate), with=F]
+
+###########################
+# Fix up data
+###########################
 
 # Deselect predictors with zero variance
 zeroVarianceColumns <- rownames(dataMetrics) [dataMetrics$zeroVar]
@@ -186,7 +190,7 @@ if (findTuningParams) {
   modelTime <- system.time(model <- gbm(target ~ ., data = train_dev, 
                                         distribution = "bernoulli",
                                         n.trees = 300,
-                                        interaction.depth = 5,
+                                        interaction.depth = 20,
                                         shrinkage = 0.01,
                                         cv.folds=3,
                                         # n.cores=2
