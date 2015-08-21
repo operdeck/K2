@@ -31,7 +31,7 @@ try(dev.off(),silent=T) # prevent graphics errors
 set.seed(314159)
 Sys.setlocale("LC_TIME", "C")
 findTuningParams <- F # set to T to use caret for finding model tuning parameters, otherwise direct model
-useSample <- F # set to true to quickly test changes on a subset of the training data
+useSample <- T # set to true to quickly test changes on a subset of the training data
 epoch <- now()
 
 ###########################
@@ -54,51 +54,7 @@ train_val <- train[-trainIndex,]
 # Data Analysis
 ###########################
 
-isDate <- function(vec) { 
-  all( grepl( "^\\d{2}[A-Z]{3}\\d{2}", vec[nzchar(vec)]) ) # check date fmt "12OCT13" (or empty)
-}
-isBoolean <- function(vec) { 
-  all( grepl( "^true$|^false$", vec[nzchar(vec)]) )
-}
-
-dataMetrics <- nearZeroVar(train, saveMetrics=TRUE)
-dataMetrics$className <- lapply(train,class)
-dataMetrics$isSymbolic <- dataMetrics$className %in% c("factor", "character")
-dataMetrics$nDistinct <- dataMetrics$percentUnique * nrow(train) / 100
-symbolicFldNames <- rownames(dataMetrics) [dataMetrics$isSymbolic]
-dataMetrics$isDate <- rownames(dataMetrics) %in% symbolicFldNames[ sapply(symbolicFldNames, function(colName) { isDate(train[[colName]]) } ) ]
-dataMetrics$isBoolean <- rownames(dataMetrics) %in% symbolicFldNames[ sapply(symbolicFldNames, function(colName) { isBoolean(train[[colName]]) } ) ]
-  
-# Get AUC estimates for all predictors
-print("Analyzing univariate performance for all predictors")
-dataMetrics$AUC_raw_dev <- NA
-dataMetrics$AUC_raw_val <- NA
-dataMetrics$AUC_rec_dev <- NA
-dataMetrics$AUC_rec_val <- NA
-for (fldNo in 1:nrow(dataMetrics)) {
-  fldName <- rownames(dataMetrics)[fldNo]
-  cat("Field:",fldNo,fldName,fill=T)
-  if (dataMetrics$nDistinct[fldNo] > 1 && fldName != "target") {
-    vec <- train_dev[,fldNo]
-    if (is.numeric(vec)) {
-      # fit a mini regression model?
-      lm.model <- lm(target ~ ., data=train_dev[, c("target",fldName)])
-      pf_dev <- data.frame( train_dev[, fldNo] )
-      pf_val <- data.frame( train_val[, fldNo] )
-      names(pf_dev) <- c(fldName)
-      names(pf_val) <- c(fldName)
-      dataMetrics$AUC_raw_dev[fldNo] <- auc(train_dev$target, predict.lm(lm.model, pf_dev))
-      dataMetrics$AUC_raw_val[fldNo] <- auc(train_val$target, predict.lm(lm.model, pf_val))
-      sb <- createSymBin2(train_dev, fldName, "target", threshold=0)
-      dataMetrics$AUC_rec_dev[fldNo] <- auc(train_dev$target, applySymBin(sb, train_dev[fldNo]))
-      dataMetrics$AUC_rec_val[fldNo] <- auc(train_val$target, applySymBin(sb, train_val[fldNo]))
-    } else {
-      sb <- createSymBin2(train_dev, fldName, "target", threshold=0)
-      dataMetrics$AUC_rec_dev[fldNo] <- auc(train_dev$target, applySymBin(sb, train_dev[fldNo]))
-      dataMetrics$AUC_rec_val[fldNo] <- auc(train_val$target, applySymBin(sb, train_val[fldNo]))
-    }
-  }
-}
+dataMetrics <- dataAnalysis(train, train_dev, train_val)
 
 # dump & write to files for external analysis
 print(head(dataMetrics))
@@ -114,10 +70,10 @@ write.table(dataSetManyDistincts, "./dataSetManyDistincts.csv", sep=";", row.nam
 write.table(sample_n(train, 10000), "./trainSample10k.csv", sep=";")
 
 ###########################
-# Fix up data/create extra fields
+# Add/remove fields
 ###########################
 
-print("Feature selection")
+print("Feature engineering")
 
 # Convert dates to time to epoch and add derived field(s) like weekday
 # TODO consider combinations between dates
@@ -140,7 +96,7 @@ processDateFlds <- function(ds, colNames) {
                                    paste(col, "_week", sep=""))
     }
     
-    # convert to date and append field name
+    # convert field itself to date and append field name
     ds[[col]] <- as.double(epoch - asDate)
     colnames(ds) [which(colnames(ds) == col)] <- paste(colnames(ds) [which(colnames(ds) == col)], "_asdate", sep="")
   }
@@ -167,6 +123,20 @@ for (colName in remainingSymbolicColumns) {
 # Maybe plot first
 # nb.plotAll(train_dev,train_val,test, "target")
 
+# Write data analysis results again, now including the newly created fields
+newFields <- c( setdiff(colnames(train_dev), rownames(dataMetrics)), "target" )
+metricsNewFields <- dataAnalysis(rbind(train_dev[, newFields], 
+                                       train_val[, newFields]), 
+                                 train_dev[, newFields], 
+                                 train_val[, newFields])
+dataMetrics <- rbind(dataMetrics, metricsNewFields)
+write.table(cbind(rownames(dataMetrics), 
+                  data.frame(lapply(dataMetrics, as.character), stringsAsFactors=FALSE)), 
+            "./dataMetrics.csv", sep=";", row.names=F,
+            col.names = c("Field", names(dataMetrics)))
+
+print("Feature selection")
+
 # Brute force NA imputation - not sure. Maybe not needed, and knn would be beter anyhow.
 train_dev <- imputeNAs(train_dev)
 train_val <- imputeNAs(train_val)
@@ -174,12 +144,12 @@ test <- imputeNAs(test)
 
 # Remove zero (& near zero) variance fields. Recalculate because of addition of extra fields.
 # TODO: just run DA again on the mutilated fields
-finalVars <- nearZeroVar(train_dev, saveMetrics=T)
-finalVarsZV <- rownames(finalVars) [finalVars$zeroVar | finalVars$nzv]
-cat("Zero and near-zero variance columns after data analysis (removed):", finalVarsZV, fill=T)
-train_dev <- train_dev[,!(names(train_dev) %in% finalVarsZV)]
-train_val <- train_val[,!(names(train_val) %in% finalVarsZV)]
-test      <- test[,!(names(test) %in% finalVarsZV)]
+finalDataMetrics <- nearZeroVar(train_dev, saveMetrics=T)
+removedFields <- rownames(finalDataMetrics) [finalDataMetrics$zeroVar | finalDataMetrics$nzv]
+cat("Zero and near-zero variance columns after data analysis (removed):", removedFields, fill=T)
+train_dev <- train_dev[,!(names(train_dev) %in% removedFields)]
+train_val <- train_val[,!(names(train_val) %in% removedFields)]
+test      <- test[,!(names(test) %in% removedFields)]
 
 # Correlations
 cat("Correlation", fill=T)

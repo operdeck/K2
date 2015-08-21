@@ -244,22 +244,24 @@ nb.plotAll <- function(df_dev, df_val, df_tst, outcomeName, nbins=10, plotFolder
   }
 }
 
-# replace NAs in test set with mean - should do knnImpute
-imputeNAs <- function(ds) {
+# replace NAs in data set with mean - should do knnImpute
+imputeNAs <- function(ds, verbose=F) {
   ds <- as.data.frame(ds)
-  cat("Imputing",sum(!complete.cases(ds)),"cases from total of",nrow(ds), fill=TRUE)
+  cat("Imputing",sum(!complete.cases(ds)),"rows from total of",nrow(ds), fill=TRUE)
   for (colNo in which(sapply(ds, is.numeric))) {
     aCol <- select(ds, colNo)
     if (any(is.na(aCol))) {
       m <- colMeans(aCol,  na.rm = TRUE)
-      cat("   imputing", colnames(ds) [colNo], sum(!complete.cases(aCol)),"NAs with mean", m, fill=TRUE)
+      if (verbose) {
+        cat("   imputing", colnames(ds) [colNo], sum(!complete.cases(aCol)),"NAs with mean", m, fill=TRUE)
+      }
       ds[!complete.cases(aCol), colNo] <- m
     }
   }
   return(ds)
 }
 
-# Kaggle's evaluation function
+# Kaggle's LogLoss evaluation function
 logLoss <- function(act, pred)
 {
   eps <- 1e-15
@@ -270,4 +272,63 @@ logLoss <- function(act, pred)
   return(ll)
 }
 
+# check if column values are all dates
+isDate <- function(vec) { 
+  all( grepl( "^\\d{2}[A-Z]{3}\\d{2}", vec[nzchar(vec)]) ) # check date fmt "12OCT13" (or empty)
+}
+
+# check if column values are all booleans
+isBoolean <- function(vec) { 
+  all( grepl( "^true$|^false$", vec[nzchar(vec)]) )
+}
+
+# Data analysis on a train set (already split in dev/val)
+dataAnalysis <- function(dsFull, dsDev, dsVal)
+{
+  dataMetrics <- nearZeroVar(dsFull, saveMetrics=TRUE)
+  dataMetrics$className <- lapply(dsFull,class)
+  dataMetrics$isSymbolic <- dataMetrics$className %in% c("factor", "character")
+  dataMetrics$nDistinct <- dataMetrics$percentUnique * nrow(dsFull) / 100
+  dataMetrics$nNA <- sapply(dsFull, function(vec) { return (sum(is.na(vec))) })
+  symbolicFldNames <- rownames(dataMetrics) [dataMetrics$isSymbolic]
+  if (length(symbolicFldNames) > 0) {
+    dataMetrics$isDate <- rownames(dataMetrics) %in% symbolicFldNames[ sapply(symbolicFldNames, function(colName) { isDate(dsFull[[colName]]) } ) ]
+    dataMetrics$isBoolean <- rownames(dataMetrics) %in% symbolicFldNames[ sapply(symbolicFldNames, function(colName) { isBoolean(dsFull[[colName]]) } ) ]
+  } else {
+    dataMetrics$isDate <- F
+    dataMetrics$isBoolean <- F
+  }  
+  # Get AUC estimates for all predictors
+  print("Analyzing univariate performance for all predictors")
+  dataMetrics$AUC_raw_dev <- NA
+  dataMetrics$AUC_raw_val <- NA
+  dataMetrics$AUC_rec_dev <- NA
+  dataMetrics$AUC_rec_val <- NA
+  for (fldNo in 1:nrow(dataMetrics)) {
+    fldName <- rownames(dataMetrics)[fldNo]
+    cat("Field:",fldNo,fldName,fill=T)
+    if (dataMetrics$nDistinct[fldNo] > 1 && fldName != "target") {
+      vec <- dsDev[,fldNo]
+      if (is.numeric(vec)) {
+        # fit a mini regression model?
+        lm.model <- lm(target ~ ., data=dsDev[, c("target",fldName)])
+        pf_dev <- data.frame( dsDev[, fldNo] )
+        pf_val <- data.frame( dsVal[, fldNo] )
+        names(pf_dev) <- c(fldName)
+        names(pf_val) <- c(fldName)
+        dataMetrics$AUC_raw_dev[fldNo] <- auc(dsDev$target, predict.lm(lm.model, pf_dev))
+        dataMetrics$AUC_raw_val[fldNo] <- auc(dsVal$target, predict.lm(lm.model, pf_val))
+        sb <- createSymBin2(dsDev, fldName, "target", threshold=0)
+        dataMetrics$AUC_rec_dev[fldNo] <- auc(dsDev$target, applySymBin(sb, dsDev[fldNo]))
+        dataMetrics$AUC_rec_val[fldNo] <- auc(dsVal$target, applySymBin(sb, dsVal[fldNo]))
+      } else {
+        sb <- createSymBin2(dsDev, fldName, "target", threshold=0)
+        dataMetrics$AUC_rec_dev[fldNo] <- auc(dsDev$target, applySymBin(sb, dsDev[fldNo]))
+        dataMetrics$AUC_rec_val[fldNo] <- auc(dsVal$target, applySymBin(sb, dsVal[fldNo]))
+      }
+    }
+  }
+  
+  return(dataMetrics)
+}
 
