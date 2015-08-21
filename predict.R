@@ -31,7 +31,7 @@ try(dev.off(),silent=T) # prevent graphics errors
 set.seed(314159)
 Sys.setlocale("LC_TIME", "C")
 findTuningParams <- F # set to T to use caret for finding model tuning parameters, otherwise direct model
-useSample <- T # set to true to quickly test changes on a subset of the training data
+useSample <- F # set to true to quickly test changes on a subset of the training data
 epoch <- now()
 
 ###########################
@@ -236,9 +236,9 @@ if (findTuningParams) {
 } else {
   modelTime <- system.time(model <- gbm(target ~ ., data = train_dev, 
                                         distribution = "bernoulli",
-                                        n.trees = 50,
+                                        n.trees = 150,
                                         interaction.depth = 20,
-                                        shrinkage = 0.01,
+                                        shrinkage = 0.02,
                                         cv.folds=3,
                                         # n.cores=2
                                         verbose= T))
