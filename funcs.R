@@ -17,8 +17,8 @@ defaultSymBinSizeThreshold = 0.001
 # TODO: fix for situation where none of the bins are above the threshold - currently errors
 createSymBin2 <- function(ds, fieldName, outcomeName, threshold = defaultSymBinSizeThreshold) 
 {
-  val = ds[,fieldName]
-  outcome = ds[,outcomeName]
+  val = ds[[fieldName]]
+  outcome = ds[[outcomeName]]
  
   if (!is.logical(outcome) && !is.integer(outcome)) {
     stop("expects a logical or integer as 2nd argument")
@@ -69,13 +69,21 @@ applySymBinIndex <- function(binning, values)
 
 # Apply sym binning to a vector of values, returning a vector of recoded values
 # Values not in the binning will get the 'residual' recoding
+########
+# NB - bug here - rows from 'values' not in 'binning' should explicitly be mapped to RESIDUAL/NA row
 applySymBin <- function(binning, values) 
 {
-  df <- data.frame(values)
-  setnames(df, c('val'))
-  r <- left_join(df, binning[seq(1:(nrow(binning)-1)),], by="val")
-  #print(r)
-  return ( ifelse(is.na(r$avgoutcome), binning$avgoutcome[nrow(binning)], r$avgoutcome) )
+  if (nrow(binning) == 1) {
+    #print(length(values))
+    #print(binning)
+    return (rep(binning$avgoutcome, length(values)))  
+  } else {
+    df <- data.frame(values)
+    setnames(df, c('val'))
+    r <- left_join(df, binning[seq(1:(nrow(binning)-1)),], by="val")
+    #print(r)
+    return ( ifelse(is.na(r$avgoutcome), binning$avgoutcome[nrow(binning)], r$avgoutcome) )
+  }
 }
 
 # Plot symbolic data analysis for one set of vectors
@@ -283,7 +291,7 @@ isBoolean <- function(vec) {
 }
 
 # Data analysis on a train set (already split in dev/val)
-dataAnalysis <- function(dsFull, dsDev, dsVal)
+dataAnalysis <- function(dsFull, dsDev, dsVal, threshold=0)
 {
   dataMetrics <- nearZeroVar(dsFull, saveMetrics=TRUE)
   dataMetrics$className <- lapply(dsFull,class)
@@ -307,24 +315,29 @@ dataAnalysis <- function(dsFull, dsDev, dsVal)
   for (fldNo in 1:nrow(dataMetrics)) {
     fldName <- rownames(dataMetrics)[fldNo]
     cat("Field:",fldNo,fldName,fill=T)
-    if (dataMetrics$nDistinct[fldNo] > 1 && fldName != "target") {
-      vec <- dsDev[,fldNo]
-      if (is.numeric(vec)) {
-        # fit a mini regression model?
-        lm.model <- lm(target ~ ., data=dsDev[, c("target",fldName)])
-        pf_dev <- data.frame( dsDev[, fldNo] )
-        pf_val <- data.frame( dsVal[, fldNo] )
-        names(pf_dev) <- c(fldName)
-        names(pf_val) <- c(fldName)
-        dataMetrics$AUC_raw_dev[fldNo] <- auc(dsDev$target, predict.lm(lm.model, pf_dev))
-        dataMetrics$AUC_raw_val[fldNo] <- auc(dsVal$target, predict.lm(lm.model, pf_val))
-        sb <- createSymBin2(dsDev, fldName, "target", threshold=0)
-        dataMetrics$AUC_rec_dev[fldNo] <- auc(dsDev$target, applySymBin(sb, dsDev[fldNo]))
-        dataMetrics$AUC_rec_val[fldNo] <- auc(dsVal$target, applySymBin(sb, dsVal[fldNo]))
+    if (fldName != "target") {
+      if (dataMetrics$nDistinct[fldNo] > 1) {
+        vec <- dsDev[,fldNo]
+        if (is.numeric(vec)) {
+          # fit a mini regression model?
+          lm.model <- lm(target ~ ., data=dsDev[, c("target",fldName)])
+          pf_dev <- data.frame( dsDev[, fldNo] )
+          pf_val <- data.frame( dsVal[, fldNo] )
+          names(pf_dev) <- c(fldName)
+          names(pf_val) <- c(fldName)
+          dataMetrics$AUC_raw_dev[fldNo] <- auc(dsDev$target, predict.lm(lm.model, pf_dev))
+          dataMetrics$AUC_raw_val[fldNo] <- auc(dsVal$target, predict.lm(lm.model, pf_val))
+          sb <- createSymBin2(dsDev, fldName, "target", threshold)
+          #print(sb) # debug...
+          dataMetrics$AUC_rec_dev[fldNo] <- auc(dsDev$target, applySymBin(sb, dsDev[[fldNo]]))
+          dataMetrics$AUC_rec_val[fldNo] <- auc(dsVal$target, applySymBin(sb, dsVal[[fldNo]]))
+        } else {
+          sb <- createSymBin2(dsDev, fldName, "target", threshold)
+          dataMetrics$AUC_rec_dev[fldNo] <- auc(dsDev$target, applySymBin(sb, dsDev[[fldNo]]))
+          dataMetrics$AUC_rec_val[fldNo] <- auc(dsVal$target, applySymBin(sb, dsVal[[fldNo]]))
+        }
       } else {
-        sb <- createSymBin2(dsDev, fldName, "target", threshold=0)
-        dataMetrics$AUC_rec_dev[fldNo] <- auc(dsDev$target, applySymBin(sb, dsDev[fldNo]))
-        dataMetrics$AUC_rec_val[fldNo] <- auc(dsVal$target, applySymBin(sb, dsVal[fldNo]))
+        dataMetrics$AUC_rec_dev[fldNo] <- dataMetrics$AUC_rec_val[fldNo] <- 0.50
       }
     }
   }
