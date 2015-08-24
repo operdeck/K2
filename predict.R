@@ -236,10 +236,10 @@ if (findTuningParams) {
 } else {
   modelTime <- system.time(model <- gbm(target ~ ., data = train_dev, 
                                         distribution = "bernoulli",
-                                        n.trees = 150,
-                                        interaction.depth = 20,
+                                        n.trees = 300,
+                                        interaction.depth = 30,
                                         shrinkage = 0.02,
-                                        cv.folds=3,
+                                        cv.folds=5,
                                         # n.cores=2
                                         verbose= T))
   cat("Duration:",modelTime,fill=T)
