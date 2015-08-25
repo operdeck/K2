@@ -3,10 +3,10 @@ library(scales)
 # Threshold for volume % in symbin
 defaultSymBinSizeThreshold = 0.001
 
-# TODO
 # Creates a binning object from a vector of values and outcomes, grouping
 # the values with a frequency above the threshold in distinct bins, the
 # rest in a residual bin.
+#
 # Result is a dataframe with
 #  binindex = bin index (1:N)
 #  val = value
@@ -14,7 +14,6 @@ defaultSymBinSizeThreshold = 0.001
 #  avgoutcome = average behaviour
 #  freq = number of cases as percentage
 # Sorted by increasing avgoutcome
-# TODO: fix for situation where none of the bins are above the threshold - currently errors
 createSymBin2 <- function(ds, fieldName, outcomeName, threshold = defaultSymBinSizeThreshold) 
 {
   val = ds[[fieldName]]
@@ -46,12 +45,13 @@ createSymBin2 <- function(ds, fieldName, outcomeName, threshold = defaultSymBinS
   }
   # bind a 'residual' row for values with frequency below threshold
   result <- rbind(result, c(NA,nRemainingCases,residualOutcome,nRemainingCases/total))
-  result$binindex <- seq(1:nrow(result))
+  
   if (nrow(result) > 1) {
+    result$binindex <- rank(result$avgoutcome) #seq(1:nrow(result))
     return(select( result, -t))
   } else {
-    #print(result)
-    setnames(result, c('val','cases','avgoutcome','freq','binindex'))
+    setnames(result, c('val','cases','avgoutcome','freq'))
+    result$binindex <- c(1)
     return(result)
   }
 }
@@ -60,23 +60,23 @@ createSymBin2 <- function(ds, fieldName, outcomeName, threshold = defaultSymBinS
 # Values not in the binning will get the 'residual' bin index
 applySymBinIndex <- function(binning, values) 
 {
-  df <- data.frame(values)
-  setnames(df, c('val'))
-  r <- left_join(df, binning[seq(1:(nrow(binning)-1)),], by="val")
-  #print(r)
-  return ( ifelse(is.na(r$binindex), binning$binindex[nrow(binning)], r$binindex) )
+  if (nrow(binning) == 1) {
+    return (rep(binning$binindex[nrow(binning)], length(values)))  
+  } else {
+    df <- data.frame(values)
+    setnames(df, c('val'))
+    r <- left_join(df, binning[seq(1:(nrow(binning)-1)),], by="val")
+    #print(r)
+    return ( ifelse(is.na(r$binindex), binning$binindex[nrow(binning)], r$binindex) )
+  }
 }
 
 # Apply sym binning to a vector of values, returning a vector of recoded values
 # Values not in the binning will get the 'residual' recoding
-########
-# NB - bug here - rows from 'values' not in 'binning' should explicitly be mapped to RESIDUAL/NA row
 applySymBin <- function(binning, values) 
 {
   if (nrow(binning) == 1) {
-    #print(length(values))
-    #print(binning)
-    return (rep(binning$avgoutcome, length(values)))  
+    return (rep(binning$avgoutcome[nrow(binning)], length(values)))  
   } else {
     df <- data.frame(values)
     setnames(df, c('val'))
@@ -153,7 +153,7 @@ sb.plotOne <- function(binning,
 }
 
 
-numbinner <- function(vec_dev, vec_val, vec_tst, beh_dev, beh_val, n)
+createNumBin <- function(vec_dev, vec_val, vec_tst, beh_dev, beh_val, n)
 {
   vec_all <- c(vec_dev, vec_val, vec_tst)
   ds_min <- min(vec_all, Inf, na.rm=T)
@@ -206,6 +206,25 @@ numbinner <- function(vec_dev, vec_val, vec_tst, beh_dev, beh_val, n)
   return(binning)
 }
 
+#b <- numbinner(train_dev$VAR_0288,train_val$VAR_0288,test$VAR_0288,train_dev$target,train_val$target,2)
+
+applyNumBin <- function(b, vec) {
+  result <- rep(nrow(b),length(vec))
+  for (i in 1:(nrow(b)-1)) {
+    if (i == 1) {
+      result[vec >= b$boundary[i] & vec <= b$boundary[i+1]] <- i 
+    } else {
+      if (i == (nrow(b)-1)) {
+        result[vec > b$boundary[i]] <- i 
+      } else {
+        result[vec > b$boundary[i] & vec <= b$boundary[i+1]] <- i 
+      }
+    }
+  }
+  result <- b$dev_beh[result]
+  return(result)
+}
+
 nb.plotAll <- function(df_dev, df_val, df_tst, outcomeName, nbins=10, plotFolder=NA) 
 {
   beh_dev <- df_dev[,outcomeName]
@@ -216,7 +235,7 @@ nb.plotAll <- function(df_dev, df_val, df_tst, outcomeName, nbins=10, plotFolder
     if (is.numeric(vec_dev)) {
       vec_val <- df_val[,fieldName]
       vec_tst <- df_tst[,fieldName]
-      binz <- numbinner(vec_dev, vec_val, vec_tst, beh_dev, beh_val, nbins)
+      binz <- createNumBin(vec_dev, vec_val, vec_tst, beh_dev, beh_val, nbins)
       cat("Summary num",fieldName,fill=T)
       print(binz)
       # Barchart with frequencies
@@ -314,7 +333,7 @@ dataAnalysis <- function(dsFull, dsDev, dsVal, threshold=0)
   dataMetrics$AUC_rec_val <- NA
   for (fldNo in 1:nrow(dataMetrics)) {
     fldName <- rownames(dataMetrics)[fldNo]
-    cat("Field:",fldNo,fldName,fill=T)
+    cat("DA for field:",fldNo,fldName,fill=T)
     if (fldName != "target") {
       if (dataMetrics$nDistinct[fldNo] > 1) {
         vec <- dsDev[,fldNo]

@@ -12,6 +12,7 @@ library(corrplot)
 library(plyr)
 library(dplyr)
 library(pROC)
+require(Ckmeans.1d.dp) # for XGBoost plot
 
 # TODO: use xgboost vs gbm
 # See 
@@ -30,10 +31,22 @@ source('funcs.R') # common funcs - inherited from previous Kaggle project
 try(dev.off(),silent=T) # prevent graphics errors
 set.seed(314159)
 Sys.setlocale("LC_TIME", "C")
-findTuningParams <- F # set to T to use caret for finding model tuning parameters, otherwise direct model
-useSample <- F # set to true to quickly test changes on a subset of the training data
 epoch <- now()
-symbinThreshold <- 0.01
+
+settings.doCaretTuning <- F # set to T to use caret for finding model tuning parameters, otherwise direct model
+settings.doGBM <- F
+settings.doXGBoost <- T
+settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
+settings.doScoring <- !settings.useSmallSample # score the test set for the Kaggle LB
+settings.doGeneratePlots <- F # whether to generate plots for every field 
+settings.symbinResidualThreshold <- 0.01
+settings.nDistinctTresholdForSymbinIntegers <- 100 # nDistinct < 100 and int --> symbinning
+settings.cutoffUnivariateAUC <- 0.52 # predictors with lower AUC will be deselected
+settings.correlationThreshold <- 0.98 # predictors with higher correlation will be deselected
+settings.gbm.n.trees <- 300 # 300 for benchmarking, 1000 for real score
+settings.gbm.interaction.depth <- 20 # 30 for real score
+settings.gbm.shrinkage <- 0.02 # TODO need to find best value here 
+settings.gbm.cv.folds <- 3 # often 3 on Mac, 5 on Lenovo
 
 ###########################
 # Read Data
@@ -47,7 +60,7 @@ for (col in 1:ncol(train)) { # change logicals into numerics
 for (col in 1:ncol(test)) {
   if (is.logical(test[[col]])) test[[col]] <- as.numeric(test[[col]])
 }
-if (useSample) { # speed up things
+if (settings.useSmallSample) { # speed up things
   train <- sample_frac(train, 0.20)
   test <- sample_frac(test, 0.20)
 }
@@ -60,7 +73,7 @@ train_val <- train[-trainIndex,]
 # Data Analysis
 ###########################
 
-dataMetrics <- dataAnalysis(train, train_dev, train_val, symbinThreshold)
+dataMetrics <- dataAnalysis(train, train_dev, train_val, settings.symbinResidualThreshold)
 
 # dump & write to files for external analysis
 print(head(dataMetrics))
@@ -74,6 +87,9 @@ dataSetManyDistincts <- train[, which(dataMetrics$nDistinct > 50 & dataMetrics$i
 write.table(dataSetManyDistincts, "./dataSetManyDistincts.csv", sep=";", row.names=F)
 
 write.table(sample_n(train, 10000), "./trainSample10k.csv", sep=";")
+
+rm(train) # no longer need this
+gc()
 
 ###########################
 # Add/remove fields
@@ -121,6 +137,8 @@ combineDates <- function(ds, fldNames) {
   if (length(fldNames) >= 2) {
     first <- fldNames[1]
     rest <- fldNames[2:length(fldNames)]
+    
+    # add new column side by side with old one (new name)
     for (second in rest) {
       combinedName <- paste(first, second, sep="_")
       cat("Combine dates: ", combinedName, fill=T)
@@ -135,28 +153,49 @@ train_dev <- combineDates(train_dev, paste( dateFldNames, '_asdate', sep=""))
 train_val <- combineDates(train_val, paste( dateFldNames, '_asdate', sep=""))
 test <- combineDates(test, paste( dateFldNames, '_asdate', sep=""))
 
-# Replace remaining symbolic fields by mean outcome
-remainingSymbolicColumns <- rownames(dataMetrics) [dataMetrics$isSymbolic & !dataMetrics$isDate]
-cat("Symbinning remaining symbolic columns: ", remainingSymbolicColumns, fill=T)
-for (colName in remainingSymbolicColumns) {
-  cat("Symbinning", colName, fill=T)
-  binner <- createSymBin2(train_dev, colName, "target", threshold=symbinThreshold) # min casecount per bin
-
-  # too many to review individually, skip plots:
-  # sb.plotOne(binner, train_dev, train_val, test, colName, "target")
-  
-  train_dev[[colName]] <- applySymBin(binner, train_dev[[colName]])
-  train_val[[colName]] <- applySymBin(binner, train_val[[colName]])
-  test[[colName]]      <- applySymBin(binner, test[[colName]])
-
-  colnames(train_dev) [which(colnames(train_dev) == colName)] <- 
-    colnames(train_val) [which(colnames(train_val) == colName)] <- 
-    colnames(test) [which(colnames(test) == colName)] <- paste(colName, "_symbin", sep="")
+# Replace symbolic fields by mean outcome
+# Assume integer columns with not so many distincts are also categorical
+symbinColNames <- rownames(dataMetrics) [(dataMetrics$isSymbolic & !dataMetrics$isDate) | 
+   (dataMetrics$nDistinct < settings.nDistinctTresholdForSymbinIntegers & dataMetrics$className == "integer")]
+cat("Symbinning symbolic columns: ", symbinColNames, fill=T)
+for (colName in symbinColNames) {
+  if (colName != "target") {
+    cat("Symbinning: ", colName, fill=T)
+    binner <- createSymBin2(train_dev, colName, "target", threshold=settings.symbinResidualThreshold) # min casecount per bin
+    
+    if (settings.doGeneratePlots) {
+      sb.plotOne(binner, train_dev, train_val, test, colName, "target", plotFolder="plots")
+    }
+    
+    train_dev[[colName]] <- applySymBin(binner, train_dev[[colName]])
+    train_val[[colName]] <- applySymBin(binner, train_val[[colName]])
+    test[[colName]]      <- applySymBin(binner, test[[colName]])
+    
+    # replace column but change name
+    colnames(train_dev) [which(colnames(train_dev) == colName)] <- 
+      colnames(train_val) [which(colnames(train_val) == colName)] <- 
+      colnames(test) [which(colnames(test) == colName)] <- paste(colName, "_symbin", sep="")
+  }
 }
 
-# Perhaps numerics should be replaced by mean outcome as well? Some are not numeric but categorical.
-# Maybe plot first
-# nb.plotAll(train_dev,train_val,test, "target")
+# Numbinning of numerics with many distinct values - hope to reduce overfitting
+for (colName in names(train_dev)) {
+  if (colName != "target" && is.numeric(train_dev[[colName]]) && length(unique(train_dev[[colName]])) > 100) {
+    cat("Num binning: ", colName, fill=T)  
+    
+    binner <- createNumBin(train_dev[[colName]],train_val[[colName]],test[[colName]],
+                           train_dev$target,train_val$target,100)
+    
+    train_dev[[colName]] <- applyNumBin(binner, train_dev[[colName]])
+    train_val[[colName]] <- applyNumBin(binner, train_val[[colName]])
+    test[[colName]] <- applyNumBin(binner, test[[colName]])
+
+    # replace column but change name
+    colnames(train_dev) [which(colnames(train_dev) == colName)] <- 
+      colnames(train_val) [which(colnames(train_val) == colName)] <- 
+      colnames(test) [which(colnames(test) == colName)] <- paste(colName, "_numbin", sep="")
+  }
+}
 
 # Write data analysis results again, now including the newly created fields
 newFields <- c( setdiff(colnames(train_dev), rownames(dataMetrics)), "target" )
@@ -164,7 +203,7 @@ metricsNewFields <- dataAnalysis(rbind(train_dev[, newFields],
                                        train_val[, newFields]), 
                                  train_dev[, newFields], 
                                  train_val[, newFields],
-                                 symbinThreshold)
+                                 settings.symbinResidualThreshold)
 dataMetrics <- rbind(dataMetrics, metricsNewFields)
 write.table(cbind(rownames(dataMetrics), 
                   data.frame(lapply(dataMetrics, as.character), stringsAsFactors=FALSE)), 
@@ -179,11 +218,10 @@ train_val <- imputeNAs(train_val)
 test <- imputeNAs(test)
 
 # Univariate selection
-univariateAUCCutOff <- 0.52
 removedFields <- rownames(dataMetrics) [dataMetrics$isSymbolic | 
                                           (!is.na(dataMetrics$AUC_rec_val) &
-                                             dataMetrics$AUC_rec_val < univariateAUCCutOff & 
-                                             dataMetrics$AUC_rec_val > (1-univariateAUCCutOff))]
+                                             dataMetrics$AUC_rec_val < settings.cutoffUnivariateAUC & 
+                                             dataMetrics$AUC_rec_val > (1-settings.cutoffUnivariateAUC))]
 cat("Removed after univariate analysis:", removedFields, " (", length(removedFields), ")", fill=T)
 train_dev <- train_dev[,!(names(train_dev) %in% removedFields)]
 train_val <- train_val[,!(names(train_val) %in% removedFields)]
@@ -194,10 +232,10 @@ cat("Remaining:", colnames(train_dev), " (", length(colnames(train_dev)), ")", f
 # Correlations
 ###########################
 cat("Correlation", fill=T)
-trainCor <- cor( sample_n(select(train_dev, -target), 10000))
+trainCor <- cor( sample_n(select(train_dev, -target), 10000)) # TODO: effect of this number?
 trainCor[is.na(trainCor)] <- 0
 #corrplot(trainCor, method="circle", type="upper", order = "hclust", addrect = 3)
-highlyCorrelatedVars <- rownames(trainCor) [findCorrelation(trainCor, cutoff=0.98)]
+highlyCorrelatedVars <- rownames(trainCor) [findCorrelation(trainCor, cutoff=settings.correlationThreshold)]
 if (length(highlyCorrelatedVars) > 0) {
   cat("Removing highly correlated variables: ", highlyCorrelatedVars, " (", length(highlyCorrelatedVars), ")", fill=T)
   train_dev <- train_dev[!(names(train_dev) %in% highlyCorrelatedVars)]
@@ -229,13 +267,24 @@ if (F) {
   write.csv(test_ori, "./data/test-trunc-full.csv", row.names=FALSE)
 }
 
+#########################################
+# Fit Logistic regression (as a benchmark)
+#########################################
+logitModel  <- glm(target ~ ., data=train_dev) # family = "binomial"
+cat('GLM benchmark Val AUC:', 
+    auc(train_val$target, predict(logitModel, train_val)),
+    'Dev AUC:',
+    auc(train_dev$target, predict(logitModel, train_dev)), 
+    fill=T )
+
 ###########################
 # Fit model
 ###########################
 print('Fit model')
-if (findTuningParams) {
+gc()
+if (settings.doCaretTuning) {
   # unfinished - see http://topepo.github.io/caret/training.html
-
+  
   train_dev$target <- as.factor(train_dev$target) # model needs factor
   levels(train_dev$target) <- c("no", "yes") # predicting probs needs this for some reason
   
@@ -262,7 +311,7 @@ if (findTuningParams) {
                                           # cv.folds=5
                                           # n.cores=2
                                           verbose= T))
-
+  
   cat("Duration:",modelTime,fill=T)
   cat("Duration:",modelTime[3]/3600,"hrs",fill=T)
   print(model)
@@ -276,13 +325,15 @@ if (findTuningParams) {
   
   stop("Stopping after caret parameter tuning step")
   
-} else {
-  modelTime <- system.time(model <- gbm(target ~ ., data = train_dev, 
+} 
+
+if (settings.doGBM) {
+  modelTime <- system.time(model <- gbm(target ~ ., data = train_dev[1:10000,], 
                                         distribution = "bernoulli",
-                                        n.trees = 150,
-                                        interaction.depth = 20,
-                                        shrinkage = 0.02,
-                                        cv.folds=3,
+                                        n.trees = 50,#settings.gbm.n.trees, 
+                                        interaction.depth = settings.gbm.interaction.depth,
+                                        shrinkage = settings.gbm.shrinkage,
+                                        cv.folds=settings.gbm.cv.folds, 
                                         # n.cores=2
                                         verbose= T))
   cat("Duration:",modelTime,fill=T)
@@ -293,16 +344,57 @@ if (findTuningParams) {
   print(best.iter)
   print(head( summary(model, n.trees=best.iter), 30 )) # plot all and print top-N predictors
   #print(pretty.gbm.tree(model, best.iter))
+  
+  predictions <- predict(model, select(train_val, -target), best.iter, type="response")
+  predictions_dev <- predict(model, select(train_dev, -target), best.iter, type="response")
+
+  if (settings.doScoring) {
+    print("Scoring test set")
+    pr <- predict(model, test, best.iter, type="response")
+  }
 }
 
+if (settings.doXGBoost) {
+  dtrain_dev <- xgb.DMatrix(data.matrix(select(train_dev, -target)), label=train_dev$target)
+  dtrain_val <- xgb.DMatrix(data.matrix(select(train_val, -target)), label=train_val$target)
+  print(gc())
+  
+  watchlist <- list(eval = dtrain_val, train = dtrain_dev)
+  
+  param <- list(  objective           = "binary:logistic", 
+                  # booster = "gblinear",
+                  eta                 = 0.1,
+                  max_depth           = 7,  # too high will overfit
+                  subsample           = 0.8,
+                  colsample_bytree    = 0.8, # column subsampling ratio
+                  eval_metric         = "auc"
+                  # alpha = 0.0001, 
+                  # lambda = 1
+  )
+  
+  xgbModel <- xgb.train(params              = param, 
+                      data                = dtrain_dev, 
+                      nrounds             = 300,
+                      verbose             = 1, 
+                      early.stop.round    = 20,
+                      watchlist           = watchlist,
+                      maximize            = TRUE)
 
-# Get score on validation set
-# make predictions
-# inp <- imputeNAs( select(train_val, -IsClick) )
-#prep <- preProcess(inp, method='knnImpute')
-predictions <- predict(model, select(train_val, -target), best.iter, type="response")
-#cat('Some predictions: ', head(predictions), fill=T)
-predictions_dev <- predict(model, select(train_dev, -target), best.iter, type="response")
+  cat("Best:",xgbModel$bestInd,fill=T)
+  
+  # feature importance
+  importance_mx <- xgb.importance(names(train_dev), model=xgbModel)
+  print( xgb.plot.importance(importance_mx[1:20,]) ) 
+  
+  # predictions
+  predictions <- predict(xgbModel, data.matrix(select(train_val, -target)))
+  predictions_dev <- predict(xgbModel, data.matrix(select(train_dev, -target)))
+  if (settings.doScoring) {
+    print("Scoring test set")
+    pr <- predict(xgbModel, data.matrix(test))
+  }
+}
+
 cat('Val AUC:', auc(train_val$target, predictions), 
     '#predictors:', ncol(test), 
     'total time:', (now()-epoch)/60, 'minutes',
@@ -314,10 +406,8 @@ cat('Dev AUC:', auc(train_dev$target, predictions_dev),
 # Apply model on test set
 ###########################
 
-if (!useSample) {
-  print("Scoring test set")
-  pr <- predict(model, test, best.iter, type="response")
-  
+if (settings.doScoring) {
+  print("Writing test set")
   subm <- data.frame(testIDs, pr)
   colnames(subm) <- c('ID','target')
   write.csv(subm, "./submission.csv", row.names=FALSE)
