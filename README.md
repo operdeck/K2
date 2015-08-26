@@ -76,8 +76,10 @@ GLM benchmark Val AUC: 0.7655162 Dev AUC: 0.7801752
 GBM: Out of memory
 
 * 26/8. Num binning and XGBoost.
-Val AUC: 0.7804097 #predictors: 1218 total time: 0.1509001 minutes
+GLM benchmark Val AUC: 0.7621631 Dev AUC: 0.7927912
+Val AUC: 0.7804097 #predictors: 1218 total time: ???
 Dev AUC: 0.9998447
+LB: 0.78159
 
 *****
 
