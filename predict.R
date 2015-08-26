@@ -14,11 +14,6 @@ library(dplyr)
 library(pROC)
 require(Ckmeans.1d.dp) # for XGBoost plot
 
-# TODO: use xgboost vs gbm
-# See 
-# https://www.kaggle.com/michaelpawlus/springleaf-marketing-response/xgboost-example-0-76178
-# https://www.kaggle.com/michaelpawlus/springleaf-marketing-response/xgboost-example-0-76178/discussion
-
 macWD <- "~/Documents/science/kaggle/springleaf/K2"
 winWD <- "D:/usr/science/kaggle/springleaf/K2"
 if (file.exists(macWD)) {
@@ -42,7 +37,7 @@ settings.doGeneratePlots <- F # whether to generate plots for every field
 settings.symbinResidualThreshold <- 0.01
 settings.nDistinctTresholdForSymbinIntegers <- 100 # nDistinct < 100 and int --> symbinning
 settings.cutoffUnivariateAUC <- 0.52 # predictors with lower AUC will be deselected
-settings.correlationThreshold <- 0.98 # predictors with higher correlation will be deselected
+settings.correlationThreshold <- 0.96 # predictors with higher correlation will be deselected
 settings.gbm.n.trees <- 300 # 300 for benchmarking, 1000 for real score
 settings.gbm.interaction.depth <- 20 # 30 for real score
 settings.gbm.shrinkage <- 0.02 # TODO need to find best value here 
@@ -153,6 +148,14 @@ train_dev <- combineDates(train_dev, paste( dateFldNames, '_asdate', sep=""))
 train_val <- combineDates(train_val, paste( dateFldNames, '_asdate', sep=""))
 test <- combineDates(test, paste( dateFldNames, '_asdate', sep=""))
 
+# Add nr of missings as a predictor (mapply is better)
+# addMissingCount <- function(df) {
+#   for (row in 1:nrow(df)) { 
+#     df$nMissing[row] <- sum(is.na(df[row,])) 
+#   }  
+#   return(df)
+# }
+
 # Replace symbolic fields by mean outcome
 # Assume integer columns with not so many distincts are also categorical
 symbinColNames <- rownames(dataMetrics) [(dataMetrics$isSymbolic & !dataMetrics$isDate) | 
@@ -226,7 +229,7 @@ cat("Removed after univariate analysis:", removedFields, " (", length(removedFie
 train_dev <- train_dev[,!(names(train_dev) %in% removedFields)]
 train_val <- train_val[,!(names(train_val) %in% removedFields)]
 test      <- test[,!(names(test) %in% removedFields)]
-cat("Remaining:", colnames(train_dev), " (", length(colnames(train_dev)), ")", fill=T)
+cat("Remaining after univariate selection:", colnames(train_dev), " (", length(colnames(train_dev)), ")", fill=T)
 
 ###########################
 # Correlations
@@ -248,7 +251,7 @@ if (length(highlyCorrelatedVars) > 0) {
   print("No highly correlated variables according to trim.matrix")
 }
 
-cat("Remaining:", colnames(train_dev), " (", length(colnames(train_dev)), ")", fill=T)
+cat("Remaining after correlation:", colnames(train_dev), " (", length(colnames(train_dev)), ")", fill=T)
 
 # Dump the data here. Taking the col names from our analysis but using the original data.
 # Just for the purpose of analyzing with ADM/PAD limiting the number of columns to < 1000 - hopefully.
@@ -363,8 +366,8 @@ if (settings.doXGBoost) {
   
   param <- list(  objective           = "binary:logistic", 
                   # booster = "gblinear",
-                  eta                 = 0.1,
-                  max_depth           = 7,  # too high will overfit
+                  eta                 = 0.03,
+                  max_depth           = 9,  # too high will overfit
                   subsample           = 0.8,
                   colsample_bytree    = 0.8, # column subsampling ratio
                   eval_metric         = "auc"
@@ -374,13 +377,13 @@ if (settings.doXGBoost) {
   
   xgbModel <- xgb.train(params              = param, 
                       data                = dtrain_dev, 
-                      nrounds             = 300,
+                      nrounds             = 1000,
                       verbose             = 1, 
-                      early.stop.round    = 20,
+                      early.stop.round    = NULL,
                       watchlist           = watchlist,
                       maximize            = TRUE)
 
-  cat("Best:",xgbModel$bestInd,fill=T)
+  #cat("Best:",xgbModel$bestInd,fill=T)
   
   # feature importance
   importance_mx <- xgb.importance(names(train_dev), model=xgbModel)
