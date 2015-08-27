@@ -37,7 +37,8 @@ settings.doGeneratePlots <- F # whether to generate plots for every field
 settings.symbinResidualThreshold <- 0.01
 settings.nDistinctTresholdForSymbinIntegers <- 100 # nDistinct < 100 and int --> symbinning
 settings.cutoffUnivariateAUC <- 0.52 # predictors with lower AUC will be deselected
-settings.correlationThreshold <- 0.96 # predictors with higher correlation will be deselected
+settings.correlationThreshold <- 0.80 # predictors with higher correlation will be deselected
+
 settings.gbm.n.trees <- 300 # 300 for benchmarking, 1000 for real score
 settings.gbm.interaction.depth <- 20 # 30 for real score
 settings.gbm.shrinkage <- 0.02 # TODO need to find best value here 
@@ -366,8 +367,8 @@ if (settings.doXGBoost) {
   
   param <- list(  objective           = "binary:logistic", 
                   # booster = "gblinear",
-                  eta                 = 0.03,
-                  max_depth           = 9,  # too high will overfit
+                  eta                 = 0.01,
+                  max_depth           = 8,  # too high will overfit
                   subsample           = 0.8,
                   colsample_bytree    = 0.8, # column subsampling ratio
                   eval_metric         = "auc"
@@ -377,7 +378,7 @@ if (settings.doXGBoost) {
   
   xgbModel <- xgb.train(params              = param, 
                       data                = dtrain_dev, 
-                      nrounds             = 1000,
+                      nrounds             = 3000,
                       verbose             = 1, 
                       early.stop.round    = NULL,
                       watchlist           = watchlist,
@@ -398,6 +399,12 @@ if (settings.doXGBoost) {
   }
 }
 
+cat("Number of vars: ", length(colnames(train_dev)), fill=T)
+cat('GLM benchmark Val AUC:', 
+    auc(train_val$target, predict(logitModel, train_val)),
+    'Dev AUC:',
+    auc(train_dev$target, predict(logitModel, train_dev)), 
+    fill=T )
 cat('Val AUC:', auc(train_val$target, predictions), 
     '#predictors:', ncol(test), 
     'total time:', (now()-epoch)/60, 'minutes',
