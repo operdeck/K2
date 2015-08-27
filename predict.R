@@ -31,13 +31,12 @@ epoch <- now()
 settings.doCaretTuning <- F # set to T to use caret for finding model tuning parameters, otherwise direct model
 settings.doGBM <- F
 settings.doXGBoost <- T
-settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
+settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
 settings.doScoring <- !settings.useSmallSample # score the test set for the Kaggle LB
 settings.doGeneratePlots <- F # whether to generate plots for every field 
-settings.symbinResidualThreshold <- 0.01
-settings.nDistinctTresholdForSymbinIntegers <- 100 # nDistinct < 100 and int --> symbinning
+settings.symbinResidualThreshold <- 0.02
 settings.cutoffUnivariateAUC <- 0.52 # predictors with lower AUC will be deselected
-settings.correlationThreshold <- 0.96 # predictors with higher correlation will be deselected
+settings.correlationThreshold <- 0.80 # predictors with higher correlation will be deselected
 settings.gbm.n.trees <- 300 # 300 for benchmarking, 1000 for real score
 settings.gbm.interaction.depth <- 20 # 30 for real score
 settings.gbm.shrinkage <- 0.02 # TODO need to find best value here 
@@ -47,7 +46,9 @@ settings.gbm.cv.folds <- 3 # often 3 on Mac, 5 on Lenovo
 # Read Data
 ###########################
 
-train <- fread("./data/train-2.csv", header = T, sep = ",",stringsAsFactors=F,integer64="double",data.table=F)
+train <- fread("./data/train-2.csv", header = T, sep = ",",
+               drop=c('ID'),
+               stringsAsFactors=F,integer64="double",data.table=F)
 test <- fread("./data/test-2.csv", header = T, sep = ",",stringsAsFactors=F,integer64="double",data.table=F)
 for (col in 1:ncol(train)) { # change logicals into numerics
   if (is.logical(train[[col]])) train[[col]] <- as.numeric(train[[col]])
@@ -59,7 +60,17 @@ if (settings.useSmallSample) { # speed up things
   train <- sample_frac(train, 0.20)
   test <- sample_frac(test, 0.20)
 }
+
 testIDs <- test$ID
+test$ID <- NULL
+
+# Special extra fields - before doing any further processing
+# Add variable with nr of missing values per row
+print("Counting NA's per row - time consuming")
+train$xtraNumNAs <- apply(train, 1, function(z) sum(is.na(z)))
+test$xtraNumNAs <- apply(test, 1, function(z) sum(is.na(z)))
+
+# Dev/val split
 trainIndex <- createDataPartition(train$target, p=0.80, list=FALSE)
 train_dev <- train[ trainIndex,]
 train_val <- train[-trainIndex,]
@@ -68,7 +79,8 @@ train_val <- train[-trainIndex,]
 # Data Analysis
 ###########################
 
-dataMetrics <- dataAnalysis(train, train_dev, train_val, settings.symbinResidualThreshold)
+dataMetrics <- dataAnalysis(train_dev, train_val, test, "target", settings.symbinResidualThreshold,
+                            settings.doGeneratePlots, "plots")
 
 # dump & write to files for external analysis
 print(head(dataMetrics))
@@ -76,12 +88,14 @@ write.table(cbind(rownames(dataMetrics), data.frame(lapply(dataMetrics, as.chara
             "./dataMetrics.csv", sep=";", row.names=F,
             col.names = c("Field", names(dataMetrics)))
 
-# Save a dataset with the vars with many distincts for review
-# NB: VAR_0200 seems to be a region, perhaps use that. But VAR_0274 is state already.
-dataSetManyDistincts <- train[, which(dataMetrics$nDistinct > 50 & dataMetrics$isSymbolic & !dataMetrics$isDate)]
-write.table(dataSetManyDistincts, "./dataSetManyDistincts.csv", sep=";", row.names=F)
-
-write.table(sample_n(train, 10000), "./trainSample10k.csv", sep=";")
+if (F) {
+  # Save a dataset with the vars with many distincts for review
+  # NB: VAR_0200 seems to be a region, perhaps use that. But VAR_0274 is state already.
+  dataSetManyDistincts <- train[, which(dataMetrics$nDistinct > 50 & dataMetrics$isSymbolic & !dataMetrics$isDate)]
+  write.table(dataSetManyDistincts, "./dataSetManyDistincts.csv", sep=";", row.names=F)
+  
+  write.table(sample_n(train, 10000), "./trainSample10k.csv", sep=";")
+}
 
 rm(train) # no longer need this
 gc()
@@ -93,7 +107,6 @@ gc()
 print("Feature engineering")
 
 # Convert dates to time to epoch and add derived field(s) like weekday
-# TODO consider combinations between dates
 processDateFlds <- function(ds, colNames) {
   extraDateFlds <- NULL
   for (colName in colNames) {
@@ -148,23 +161,16 @@ train_dev <- combineDates(train_dev, paste( dateFldNames, '_asdate', sep=""))
 train_val <- combineDates(train_val, paste( dateFldNames, '_asdate', sep=""))
 test <- combineDates(test, paste( dateFldNames, '_asdate', sep=""))
 
-# Add nr of missings as a predictor (mapply is better)
-# addMissingCount <- function(df) {
-#   for (row in 1:nrow(df)) { 
-#     df$nMissing[row] <- sum(is.na(df[row,])) 
-#   }  
-#   return(df)
-# }
-
 # Replace symbolic fields by mean outcome
 # Assume integer columns with not so many distincts are also categorical
 symbinColNames <- rownames(dataMetrics) [(dataMetrics$isSymbolic & !dataMetrics$isDate) | 
-   (dataMetrics$nDistinct < settings.nDistinctTresholdForSymbinIntegers & dataMetrics$className == "integer")]
+   (dataMetrics$Overlap == 1 & dataMetrics$className == "integer")]
 cat("Symbinning symbolic columns: ", symbinColNames, fill=T)
 for (colName in symbinColNames) {
   if (colName != "target") {
     cat("Symbinning: ", colName, fill=T)
-    binner <- createSymBin2(train_dev, colName, "target", threshold=settings.symbinResidualThreshold) # min casecount per bin
+    binner <- createSymBin2(train_dev[[colName]], train_dev$target, 
+                            threshold=settings.symbinResidualThreshold) # min casecount per bin
     
     if (settings.doGeneratePlots) {
       sb.plotOne(binner, train_dev, train_val, test, colName, "target", plotFolder="plots")
@@ -188,6 +194,9 @@ for (colName in names(train_dev)) {
     
     binner <- createNumBin(train_dev[[colName]],train_val[[colName]],test[[colName]],
                            train_dev$target,train_val$target,100)
+    if (settings.doGeneratePlots) {
+      plotNumBin(binner, "plots")
+    }
     
     train_dev[[colName]] <- applyNumBin(binner, train_dev[[colName]])
     train_val[[colName]] <- applyNumBin(binner, train_val[[colName]])
@@ -201,12 +210,14 @@ for (colName in names(train_dev)) {
 }
 
 # Write data analysis results again, now including the newly created fields
-newFields <- c( setdiff(colnames(train_dev), rownames(dataMetrics)), "target" )
-metricsNewFields <- dataAnalysis(rbind(train_dev[, newFields], 
-                                       train_val[, newFields]), 
-                                 train_dev[, newFields], 
-                                 train_val[, newFields],
-                                 settings.symbinResidualThreshold)
+newFields <- setdiff(setdiff(colnames(train_dev), rownames(dataMetrics)),"target")
+newFieldsWithTarget <- c(newFields, "target")
+metricsNewFields <- dataAnalysis(train_dev[, newFieldsWithTarget], 
+                                 train_val[, newFieldsWithTarget],
+                                 test[, newFields],
+                                 "target",
+                                 settings.symbinResidualThreshold,
+                                 settings.doGeneratePlots, "plots")
 dataMetrics <- rbind(dataMetrics, metricsNewFields)
 write.table(cbind(rownames(dataMetrics), 
                   data.frame(lapply(dataMetrics, as.character), stringsAsFactors=FALSE)), 
@@ -280,6 +291,8 @@ cat('GLM benchmark Val AUC:',
     auc(train_dev$target, predict(logitModel, train_dev)), 
     fill=T )
 
+stop("STOPPING AFTER GLM")
+
 ###########################
 # Fit model
 ###########################
@@ -333,7 +346,7 @@ if (settings.doCaretTuning) {
 if (settings.doGBM) {
   modelTime <- system.time(model <- gbm(target ~ ., data = train_dev[1:10000,], 
                                         distribution = "bernoulli",
-                                        n.trees = 50,#settings.gbm.n.trees, 
+                                        n.trees = settings.gbm.n.trees, 
                                         interaction.depth = settings.gbm.interaction.depth,
                                         shrinkage = settings.gbm.shrinkage,
                                         cv.folds=settings.gbm.cv.folds, 
