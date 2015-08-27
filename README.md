@@ -21,6 +21,11 @@ GLM benchmark Val AUC: 0.7053411 Dev AUC: 0.8705255
 GLM benchmark Val AUC: 0.7158952 Dev AUC: 0.854645
 
 * correlationThreshold <- 0.80 (ipv .96)
+GLM benchmark Val AUC: 0.7311455 Dev AUC: 0.8321731
+
+* merge with Mac stuff
+GLM benchmark Val AUC: 0.7312647 Dev AUC: 0.8321001 [492 predictors]
+
 
 Feature engineering
 -------------------

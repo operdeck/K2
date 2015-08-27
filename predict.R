@@ -37,6 +37,7 @@ settings.doGeneratePlots <- F # whether to generate plots for every field
 settings.symbinResidualThreshold <- 0.02
 settings.cutoffUnivariateAUC <- 0.52 # predictors with lower AUC will be deselected
 settings.correlationThreshold <- 0.80 # predictors with higher correlation will be deselected
+
 settings.gbm.n.trees <- 300 # 300 for benchmarking, 1000 for real score
 settings.gbm.interaction.depth <- 20 # 30 for real score
 settings.gbm.shrinkage <- 0.02 # TODO need to find best value here 
@@ -164,7 +165,7 @@ test <- combineDates(test, paste( dateFldNames, '_asdate', sep=""))
 # Replace symbolic fields by mean outcome
 # Assume integer columns with not so many distincts are also categorical
 symbinColNames <- rownames(dataMetrics) [(dataMetrics$isSymbolic & !dataMetrics$isDate) | 
-   (dataMetrics$Overlap == 1 & dataMetrics$className == "integer")]
+                                           (dataMetrics$Overlap == 1 & dataMetrics$className == "integer")]
 cat("Symbinning symbolic columns: ", symbinColNames, fill=T)
 for (colName in symbinColNames) {
   if (colName != "target") {
@@ -201,7 +202,7 @@ for (colName in names(train_dev)) {
     train_dev[[colName]] <- applyNumBin(binner, train_dev[[colName]])
     train_val[[colName]] <- applyNumBin(binner, train_val[[colName]])
     test[[colName]] <- applyNumBin(binner, test[[colName]])
-
+    
     # replace column but change name
     colnames(train_dev) [which(colnames(train_dev) == colName)] <- 
       colnames(train_val) [which(colnames(train_val) == colName)] <- 
@@ -291,7 +292,7 @@ cat('GLM benchmark Val AUC:',
     auc(train_dev$target, predict(logitModel, train_dev)), 
     fill=T )
 
-stop("STOPPING AFTER GLM")
+##stop("STOPPING AFTER GLM")
 
 ###########################
 # Fit model
@@ -363,7 +364,7 @@ if (settings.doGBM) {
   
   predictions <- predict(model, select(train_val, -target), best.iter, type="response")
   predictions_dev <- predict(model, select(train_dev, -target), best.iter, type="response")
-
+  
   if (settings.doScoring) {
     print("Scoring test set")
     pr <- predict(model, test, best.iter, type="response")
@@ -379,8 +380,8 @@ if (settings.doXGBoost) {
   
   param <- list(  objective           = "binary:logistic", 
                   # booster = "gblinear",
-                  eta                 = 0.03,
-                  max_depth           = 9,  # too high will overfit
+                  eta                 = 0.01,
+                  max_depth           = 8,  # too high will overfit
                   subsample           = 0.8,
                   colsample_bytree    = 0.8, # column subsampling ratio
                   eval_metric         = "auc"
@@ -389,13 +390,13 @@ if (settings.doXGBoost) {
   )
   
   xgbModel <- xgb.train(params              = param, 
-                      data                = dtrain_dev, 
-                      nrounds             = 1000,
-                      verbose             = 1, 
-                      early.stop.round    = NULL,
-                      watchlist           = watchlist,
-                      maximize            = TRUE)
-
+                        data                = dtrain_dev, 
+                        nrounds             = 3000,
+                        verbose             = 1, 
+                        early.stop.round    = NULL,
+                        watchlist           = watchlist,
+                        maximize            = TRUE)
+  
   #cat("Best:",xgbModel$bestInd,fill=T)
   
   # feature importance
@@ -411,6 +412,12 @@ if (settings.doXGBoost) {
   }
 }
 
+cat("Number of vars: ", length(colnames(train_dev)), fill=T)
+cat('GLM benchmark Val AUC:', 
+    auc(train_val$target, predict(logitModel, train_val)),
+    'Dev AUC:',
+    auc(train_dev$target, predict(logitModel, train_dev)), 
+    fill=T )
 cat('Val AUC:', auc(train_val$target, predictions), 
     '#predictors:', ncol(test), 
     'total time:', (now()-epoch)/60, 'minutes',
