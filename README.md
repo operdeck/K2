@@ -1,109 +1,69 @@
-# K2
+# K2 Ideas
 
-20% sample baseline
-gbm: trees 150 / shrink 0.02 / depth 20 / 3-fold cv
+Benchmark at 20%
+GLM benchmark Val AUC: 0.7094192 Dev AUC: 0.8668802
+* earlier introduced extra predictor for NA count per row
+* not even reading train ID anymore
+* num NAs 'xtraNumNAs' - review performance
+* add K-S and overlap statistics in DA
+* refactored DA function
+* replaced integers nDistinctTresholdForSymbinIntegers by check for 100% overlap to recode as symbolic
 
-AUC val = 0.7529 (0.24 hrs)
+GLM benchmark Val AUC: 0.7103337 Dev AUC: 0.8655112
 
-==========
-before weekend merge from  b459341..e2b9f7e
+* symbinResidualThreshold <- 0.001
+GLM benchmark Val AUC: 0.6990035 Dev AUC: 0.8826152
 
-Duration: 6.380494 hrs
-gbm(formula = target ~ ., distribution = "bernoulli", data = train_dev, 
-    n.trees = 300, interaction.depth = 30, shrinkage = 0.02, 
-    cv.folds = 5, verbose = T)
-A gradient boosted model with bernoulli loss function.
-300 iterations were performed.
-The best cross-validation iteration was 300.
-There were 673 predictors of which 591 had non-zero influence.
+* symbinResidualThreshold <- 0.005
+GLM benchmark Val AUC: 0.7053411 Dev AUC: 0.8705255
 
-Validation set AUC: 0.7734578
-LB: 0.77844 (! big improvement)
+* symbinResidualThreshold <- 0.02
+GLM benchmark Val AUC: 0.7158952 Dev AUC: 0.854645
+
+* correlationThreshold <- 0.80 (ipv .96)
+GLM benchmark Val AUC: 0.7311455 Dev AUC: 0.8321731
+
+* merge with Mac stuff
+GLM benchmark Val AUC: 0.7312647 Dev AUC: 0.8321001 [492 predictors]
 
 
-=> after merge; with trees 150 / shrink 0.02 / depth 20 / 3-fold cv 20% sample result in
-Val AUC: 0.7554135 #predictors: 605 total time: 0.4384021 minutes
-Dev AUC: 0.8126395
-
-300 trees:
-Val AUC: 0.7614224 #predictors: 605 total time: 0.6780234 minutes
-Dev AUC: 0.8479096
-
-Variations
-==========
-
-* Predictor selection univariate AUC >= .52 instead of nzv
-Validation set AUC: 0.7554171
+Feature engineering
+-------------------
 
 * Combine pairs of date variables (d1-d2, d1-d3, …, d2 - d3, …)
-Validation set AUC: 0.7540101 #predictors: 626 total time: 0.3912383 minutes
-VAR_0217-VAR_0073 comes up high in selected predictors
+[Done]. E.g. VAR_0217-VAR_0073 comes up high in selected predictors
 
-* DA recoding with same threshold as in actual binning
-20% sample : Val set AUC: 0.7554135 #predictors: 605 total time: 0.3704926 minutes
-100% sample: Val set AUC: 0.7638571 #predictors: 631 total time: 0.2003584 minutes
-Leaderboard:              0.76896
-Development set AUC:      0.7754364 (big difference suggests overfitting)
+* Count NA’s per row as extra var
+[Done]. Seems to help.
 
-* Same with n.trees = 300 / depth 20 / shrinkage 0.02 / cv.folds = 3
-20% sample :
-Val AUC: 0.7614085 #predictors: 605 total time: 0.1435924 minutes
-Dev AUC: 0.8479056
-==> overfitting
+* Count consecutive booleans as extra var (VAR_0008 .. VAR_0012)
 
-* 24/8. Apply symbin to integers as well (assume they're really categorical)
-20%:
-Val AUC: 0.7591139 #predictors: 1125 total time: 0.01985351 minutes
-Dev AUC: 0.8510494
-==> worse; even more overfitting
+* Join City/County info as extra vars (e.g. size, population, ...)
 
-* 24/8. Same, only symbin to integers with < 100 distinct values
-Val AUC: 0.7629714 #predictors: 1030 total time: 0.01752806 minutes
-Dev AUC: 0.8537177
-==> better; but still strongly overfitting
+* Professions columns - organize manually; derive some values
 
-* 24/8. Fix bug in binning
-Done - binning bug was no real issue, but binindex now reflects behaviour order. Saving plots on disk.
-NB: plots do not use the binindex as expected, see VAR_0001 plot. Need
-to re-order by binindex first?
+* Some numerics have strange ranges - special values 9999 etc.
 
-* 24/8. Overnight run. DA residual threshold 0.005; ntrees = 1000; interaction.depth = 30; cv.folds 5
-GLM benchmark Val AUC: 0.7655162 Dev AUC: 0.7801752
-GBM aborted for unknown reason
+Data Analysis
+-------------
 
-* 25/8. Re-benchmarking. Residual 0.005, gbm 300/20/3/0.02. 100% sample.
-GLM benchmark Val AUC: 0.7655162 Dev AUC: 0.7801752
-GBM: Out of memory
+* Predictor selection based on univariate performance threshold instead of nzv heuristics 
+[Done]
 
-* 26/8. Num binning and XGBoost.
-GLM benchmark Val AUC: 0.7621631 Dev AUC: 0.7927912
-Val AUC: 0.7804097 #predictors: 1218 total time: ???
-Dev AUC: 0.9998447
-LB: 0.78159
+* Apply symbin to integers with < 100 distinct values
+[Done]
 
-*****
+* Numbinning (equiweight + recoding) for remaining numerics
+[Done]
 
-* More experiments in DA symbin residual setting (1%, 2%, 0.05%, 0%)? 0% should
-be same as no symbolic recoding.
+* Check unique values in test vs train to determine whether categorical binning is ok
+check also K-S for numerics
 
-* Num binning (equi-weight not interval) e.g. for vars with > 100 fields
-class numeric/integer (is.numeric) and nDistinct > 100 then *replace* with
-apply numbinner() to field
-bv xx <- numbinner( train_dev$VAR_0002, train_val$VAR_0002, test$VAR_0002, train_dev$target, train_val$target, 10)
-TODO: add list of ‘special values’ to treat as NA? or replace by NA before.
-TODO: 'integer' cols are probably symbolic - treat as such
+* Choose between categorical and symbolic binning based on performance instead of heuristics
 
 * NA treatment. No NA imputation or removal of rows or cols with many NAs - or use caret
 imputation for preprocessing (maybe scale as well - pca??). Consider other 
 values as NA as well (-1, 999, 999996 etc). Maybe ‘isMissing’ field for each var?
-
-* Count NA’s per row as extra var
-
-* Count consecutive booleans as extra var (VAR_0008 .. VAR_0012)
-
-* Join state info as extra vars (e.g. size, population, ...)
-
-* Some numerics have strange ranges - special values 9999 etc.
 
 * Symbolics with small nDistinct as dummy variables, rest symbolic recoding
 caret:
@@ -112,4 +72,19 @@ head(predict(dummies, newdata = etitanic))
 
 * Remove linear combinations (caret)
 
-* XGBoost instead of gbm
+
+Model building
+--------------
+* XGBoost 
+[Done]. Seems better than gbm but perhaps not a big difference. Need to re-compare at some point.
+Parameters need to be tuned further to prevent overfitting.
+
+
+Tuning
+------
+* GLM benchmark
+[Done]. Helps in univariate analysis verification.
+
+* Tune DA symbin threshold
+
+*****

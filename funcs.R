@@ -1,7 +1,5 @@
 library(scales)
-
-# Threshold for volume % in symbin
-defaultSymBinSizeThreshold = 0.001
+library(sm)
 
 # Creates a binning object from a vector of values and outcomes, grouping
 # the values with a frequency above the threshold in distinct bins, the
@@ -14,11 +12,8 @@ defaultSymBinSizeThreshold = 0.001
 #  avgoutcome = average behaviour
 #  freq = number of cases as percentage
 # Sorted by increasing avgoutcome
-createSymBin2 <- function(ds, fieldName, outcomeName, threshold = defaultSymBinSizeThreshold) 
+createSymBin2 <- function(val, outcome, threshold = 0.001) 
 {
-  val = ds[[fieldName]]
-  outcome = ds[[outcomeName]]
- 
   if (!is.logical(outcome) && !is.integer(outcome)) {
     stop("expects a logical or integer as 2nd argument")
   }
@@ -90,7 +85,7 @@ applySymBin <- function(binning, values)
 sb.plotOne <- function(binning, 
                        ds_dev, ds_val, ds_tst,
                        fieldName, outcomeName,
-                       plotFolder = NA)
+                       plotFolder = NULL)
 {
   ds_dev_bins <- applySymBinIndex(binning, ds_dev[[fieldName]])
   df_dev <- data.frame( ds_dev_bins, ds_dev[,outcomeName])
@@ -109,9 +104,9 @@ sb.plotOne <- function(binning,
   rs_tst <- group_by(df_tst, binindex) %>% dplyr::summarise( tst_f=n()/nrow(df_tst) )
   
   df_summarized <- left_join(left_join(left_join(select(binning, binindex, val), 
-                                  rs_dev, by="binindex"),
-                             rs_val, by="binindex"),
-                        rs_tst, by="binindex")
+                                                 rs_dev, by="binindex"),
+                                       rs_val, by="binindex"),
+                             rs_tst, by="binindex")
   
   cat("Summary symbin",fieldName,fill=T)
   print(df_summarized)
@@ -129,7 +124,7 @@ sb.plotOne <- function(binning,
       theme(axis.text.x = element_text(angle = 45, hjust = 1))+
       scale_y_continuous(labels=percent)
     print(plot1)
-    if (!is.na(plotFolder)) {
+    if (!is.null(plotFolder)) {
       ggsave(paste(plotFolder,'/plot_',fieldName,'_bin_freq.png',sep=""))
     }
   })
@@ -139,12 +134,12 @@ sb.plotOne <- function(binning,
   df_plot2$val <- reorder(as.character(factor(df_plot2$val)),df_plot2$binindex)
   try({
     plot2 <- ggplot(df_plot2, 
-                  aes(x=val, y=outcome, colour=dataset, group=dataset))+
+                    aes(x=val, y=outcome, colour=dataset, group=dataset))+
       geom_line()+geom_point()+
       xlab(paste(fieldName,"(symbin)"))+
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
     print(plot2)
-    if (!is.na(plotFolder)) {
+    if (!is.null(plotFolder)) {
       ggsave(paste(plotFolder,'/plot_',fieldName,'_bin_beh.png',sep=""))
     }
   })
@@ -162,7 +157,7 @@ createNumBin <- function(vec_dev, vec_val, vec_tst, beh_dev, beh_val, n)
     intervals <- c(ds_min, sort(unique(vec_all)))
   } else {
     intervals <- unique(c(ds_min, quantile(vec_all, 
-                                         (1:n)/n, na.rm=T, names=F), ds_max))
+                                           (1:n)/n, na.rm=T, names=F), ds_max))
   }
   if (length(intervals) == 1) {
     intervals <- rep(intervals[1],2) # make sure there are two rows
@@ -225,50 +220,38 @@ applyNumBin <- function(b, vec) {
   return(result)
 }
 
-nb.plotAll <- function(df_dev, df_val, df_tst, outcomeName, nbins=10, plotFolder=NA) 
+plotNumBin <- function(binz, plotFolder=NULL) 
 {
-  beh_dev <- df_dev[,outcomeName]
-  beh_val <- df_val[,outcomeName]
-  for (fieldName in names(df_dev))
-  {
-    vec_dev <- df_dev[,fieldName]
-    if (is.numeric(vec_dev)) {
-      vec_val <- df_val[,fieldName]
-      vec_tst <- df_tst[,fieldName]
-      binz <- createNumBin(vec_dev, vec_val, vec_tst, beh_dev, beh_val, nbins)
-      cat("Summary num",fieldName,fill=T)
-      print(binz)
-      # Barchart with frequencies
-      binz$interval <- factor(binz$interval, levels=binz$interval)
-      df_plot1 <- gather(binz, dataset, frequency, dev_f, val_f, tst_f)
-      try({
-        plot1 <- ggplot(df_plot1, 
-                      aes(x=interval, y=frequency, fill=dataset))+
-        geom_bar(stat="identity",position="dodge")+
-        xlab(fieldName)+
-        theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-        scale_y_continuous(labels=percent)
-        print(plot1)
-        if (!is.na(plotFolder)) {
-          ggsave(paste(trainDataFolder,'/plot_',fieldName,'_raw_freq.png',sep=""))
-        }
-      })
-
-      # Linegraph with average outcomes
-      df_plot2 <- gather(binz, dataset, outcome, dev_beh, val_beh)
-      try({
-        plot2 <- ggplot(df_plot2, 
-                      aes(x=interval, y=outcome, colour=dataset, group=dataset))+
-        geom_line()+geom_point()+
-        xlab(fieldName)+
-        theme(axis.text.x = element_text(angle = 45, hjust = 1))
-        print(plot2)
-        if (!is.na(plotFolder)) {
-          ggsave(paste(plotFolder,'/plot_',fieldName,'_raw_beh.png',sep=""))
-        }
-      })
+  print(binz)
+  # Barchart with frequencies
+  binz$interval <- factor(binz$interval, levels=binz$interval)
+  df_plot1 <- gather(binz, dataset, frequency, dev_f, val_f, tst_f)
+  try({
+    plot1 <- ggplot(df_plot1, 
+                    aes(x=interval, y=frequency, fill=dataset))+
+      geom_bar(stat="identity",position="dodge")+
+      xlab(fieldName)+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+      scale_y_continuous(labels=percent)
+    print(plot1)
+    if (!is.null(plotFolder)) {
+      ggsave(paste(trainDataFolder,'/plot_',fieldName,'_nb_freq.png',sep=""))
     }
-  }
+  })
+  
+  # Linegraph with average outcomes
+  df_plot2 <- gather(binz, dataset, outcome, dev_beh, val_beh)
+  try({
+    plot2 <- ggplot(df_plot2, 
+                    aes(x=interval, y=outcome, colour=dataset, group=dataset))+
+      geom_line()+geom_point()+
+      xlab(fieldName)+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    print(plot2)
+    if (!is.null(plotFolder)) {
+      ggsave(paste(plotFolder,'/plot_',fieldName,'_nb_beh.png',sep=""))
+    }
+  })
 }
 
 # replace NAs in data set with mean - should do knnImpute
@@ -309,12 +292,16 @@ isBoolean <- function(vec) {
   all( grepl( "^true$|^false$", vec[nzchar(vec)]) )
 }
 
-# Data analysis on a train set (already split in dev/val)
-dataAnalysis <- function(dsFull, dsDev, dsVal, threshold=0)
+# DA for one vector - assuming the dataframes all contain only one field
+dataAnalysisOne <- function(dfDev, dfVal, dfTest, vDevTarget, vValTarget, fldName, threshold, 
+                            generatePlots=F, plotFolder=NULL)
 {
+  dsFull <- rbind(dfDev, dfVal)
+  
   dataMetrics <- nearZeroVar(dsFull, saveMetrics=TRUE)
   dataMetrics$className <- lapply(dsFull,class)
   dataMetrics$isSymbolic <- dataMetrics$className %in% c("factor", "character")
+  dataMetrics$isNumeric <- dataMetrics$className %in% c("integer", "numeric", "logical")
   dataMetrics$nDistinct <- dataMetrics$percentUnique * nrow(dsFull) / 100
   dataMetrics$nNA <- sapply(dsFull, function(vec) { return (sum(is.na(vec))) })
   symbolicFldNames <- rownames(dataMetrics) [dataMetrics$isSymbolic]
@@ -326,41 +313,108 @@ dataAnalysis <- function(dsFull, dsDev, dsVal, threshold=0)
     dataMetrics$isBoolean <- F
   }  
   # Get AUC estimates for all predictors
-  print("Analyzing univariate performance for all predictors")
+  dataMetrics$Overlap <- NA
+  dataMetrics$ksTest <- NA
   dataMetrics$AUC_raw_dev <- NA
   dataMetrics$AUC_raw_val <- NA
   dataMetrics$AUC_rec_dev <- NA
   dataMetrics$AUC_rec_val <- NA
-  for (fldNo in 1:nrow(dataMetrics)) {
-    fldName <- rownames(dataMetrics)[fldNo]
-    cat("DA for field:",fldNo,fldName,fill=T)
-    if (fldName != "target") {
-      if (dataMetrics$nDistinct[fldNo] > 1) {
-        vec <- dsDev[,fldNo]
-        if (is.numeric(vec)) {
-          # fit a mini regression model?
-          lm.model <- lm(target ~ ., data=dsDev[, c("target",fldName)])
-          pf_dev <- data.frame( dsDev[, fldNo] )
-          pf_val <- data.frame( dsVal[, fldNo] )
-          names(pf_dev) <- c(fldName)
-          names(pf_val) <- c(fldName)
-          dataMetrics$AUC_raw_dev[fldNo] <- auc(dsDev$target, predict.lm(lm.model, pf_dev))
-          dataMetrics$AUC_raw_val[fldNo] <- auc(dsVal$target, predict.lm(lm.model, pf_val))
-          sb <- createSymBin2(dsDev, fldName, "target", threshold)
-          #print(sb) # debug...
-          dataMetrics$AUC_rec_dev[fldNo] <- auc(dsDev$target, applySymBin(sb, dsDev[[fldNo]]))
-          dataMetrics$AUC_rec_val[fldNo] <- auc(dsVal$target, applySymBin(sb, dsVal[[fldNo]]))
-        } else {
-          sb <- createSymBin2(dsDev, fldName, "target", threshold)
-          dataMetrics$AUC_rec_dev[fldNo] <- auc(dsDev$target, applySymBin(sb, dsDev[[fldNo]]))
-          dataMetrics$AUC_rec_val[fldNo] <- auc(dsVal$target, applySymBin(sb, dsVal[[fldNo]]))
+  
+  if (nrow(dataMetrics) != 1) {
+    print(dataMetrics)
+    stop("STOP: expected one row in data metrics frame")
+  }
+  
+  cat("DA for field:",fldName,fill=T)
+  
+  u1 <- unique(dsFull[[1]])
+  u2 <- unique(dfTest[[1]])
+  dataMetrics$Overlap[1] <- length(intersect(u1,u2)) / length(union(u1,u2))
+  
+  if (dataMetrics$isNumeric[1] && dataMetrics$nDistinct[1] > 1) {
+    # K-S test for similarity test/train distributions and checking overlap distincts test/train
+    
+    ksMetric <- suppressWarnings(ks.test(
+      density(dsFull[[1]], na.rm=T)[["y"]], 
+      density(dfTest[[1]], na.rm=T)[["y"]]) [["statistic"]])
+    if (generatePlots) {
+      try({
+        plotFrame <- data.frame(c(dfDev[[1]], dfVal[[1]], dfTest[[1]]), 
+                                factor(c(rep("dev",nrow(dfDev)),
+                                         rep("val",nrow(dfVal)),
+                                         rep("test",nrow(dfTest)))))
+        names(plotFrame) <- c('values','dataset')
+        densityPlot <-
+          ggplot(plotFrame, aes(x=values)) + geom_density(aes(group=dataset, colour=dataset))+
+            xlab(paste(fldName, "K-S score:", ksMetric, 
+                       " Overlap:", dataMetrics$Overlap[1]))
+        print(densityPlot)
+        if (!is.null(plotFolder)) {
+          ggsave(paste(plotFolder,'/plot_',fldName,'_density.png',sep=""))
         }
-      } else {
-        dataMetrics$AUC_rec_dev[fldNo] <- dataMetrics$AUC_rec_val[fldNo] <- 0.50
-      }
+      })
     }
+    
+    dataMetrics$ksTest[1] <- ksMetric
+  
+    if (F) {
+      # identify outliers (Ivar special code)
+      freq <- table(dsFull[[1]])
+      minObs  <- 100 # TODO: tune
+      q <- quantile(freq, probs=c(0.25,0.75))
+      limit <- q[2] + 3 * (q[2]-q[1]) # use the interquartile range for outliers
+      limit <- max(limit, minObs) # at least nObs
+      special <- freq[freq > limit]
+      specialTot <- sum(special)
+      cat("limit:", limit, "** special:", names(special), "freqs", special, 
+          "tot:", specialTot, "\n")
+    }    
+  }
+  
+  if (dataMetrics$nDistinct[1] > 1) {
+    if (dataMetrics$isNumeric[1]) {
+      # fit a mini regression model?
+#       lm.model <- lm(target ~ ., data=dfDev[, c("target",fldName)])
+#       pf_dev <- data.frame( dfDev[[1]] )
+#       pf_val <- data.frame( dfVal[[1]])
+#       names(pf_dev) <- c(fldName)
+#       names(pf_val) <- c(fldName)
+#       dataMetrics$AUC_raw_dev[1] <- auc(vDevTarget, predict.lm(lm.model, pf_dev))
+#       dataMetrics$AUC_raw_val[1] <- auc(vValTarget, predict.lm(lm.model, pf_val))
+      dataMetrics$AUC_raw_dev[1] <- auc(vDevTarget, dfDev[[1]])
+      dataMetrics$AUC_raw_val[1] <- auc(vValTarget, dfVal[[1]])
+      sb <- createSymBin2(dfDev[[1]], vDevTarget, threshold)
+      #print(sb) # debug...
+      dataMetrics$AUC_rec_dev[1] <- auc(vDevTarget, applySymBin(sb, dfDev[[1]]))
+      dataMetrics$AUC_rec_val[1] <- auc(vValTarget, applySymBin(sb, dfVal[[1]]))
+    } else {
+      sb <- createSymBin2(dfDev[[1]], vDevTarget, threshold)
+      dataMetrics$AUC_rec_dev[1] <- auc(vDevTarget, applySymBin(sb, dfDev[[1]]))
+      dataMetrics$AUC_rec_val[1] <- auc(vValTarget, applySymBin(sb, dfVal[[1]]))
+    }
+  } else {
+    dataMetrics$AUC_rec_dev[1] <- dataMetrics$AUC_rec_val[1] <- 0.50
   }
   
   return(dataMetrics)
 }
 
+# Data analysis on a train set (already split in dev/val)
+dataAnalysis <- function(dfDev, dfVal, dfTest, outcomeName, threshold=0, generatePlots=F, plotFolder=NULL)
+{
+  print("Analyzing basic metrics for all predictors")
+  metrics <- NULL
+  for (fldName in names(dfTest)) {
+    metricOne <- dataAnalysisOne(dfDev[fldName], dfVal[fldName], dfTest[fldName], # data frames
+                                 dfDev[[outcomeName]], dfVal[[outcomeName]], # vectors
+                                 fldName, threshold, 
+                                 generatePlots, plotFolder)
+    print(metricOne)
+    if (is.null(metrics)) {
+      metrics <- metricOne
+    } else {
+      metrics <- rbind(metrics, metricOne)
+    }
+  }
+  return(metrics)
+}
