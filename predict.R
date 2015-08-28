@@ -31,10 +31,10 @@ epoch <- now()
 settings.doCaretTuning <- F # set to T to use caret for finding model tuning parameters, otherwise direct model
 settings.doGBM <- F
 settings.doXGBoost <- T
-settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
+settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
 settings.doScoring <- !settings.useSmallSample # score the test set for the Kaggle LB
 settings.doGeneratePlots <- F # whether to generate plots for every field 
-settings.symbinResidualThreshold <- 0.02
+settings.symbinResidualThreshold <- 0.01
 settings.cutoffUnivariateAUC <- 0.52 # predictors with lower AUC will be deselected
 settings.correlationThreshold <- 0.80 # predictors with higher correlation will be deselected
 
