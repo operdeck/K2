@@ -29,8 +29,8 @@ Sys.setlocale("LC_TIME", "C")
 epoch <- now()
 gc()
 
-settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
-#settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
+#settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
+settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
 
 settings.doCaretTuning <- F # set to T to use caret for finding model tuning parameters, otherwise direct model
 settings.doGBM <- F
@@ -53,16 +53,19 @@ settings.gbm.cv.folds <- 3 # often 3 on Mac, 5 on Lenovo
 
 if(settings.useSmallSample) {
   train <- fread("./data/train_small.csv", header = T, sep = ",",
-                 drop=c('ID'),
                  stringsAsFactors=F,integer64="double",data.table=F)
   test <- fread("./data/test_small.csv", header = T, sep = ",",
                 stringsAsFactors=F,integer64="double",data.table=F)
 } else {
   train <- fread("./data/train-2.csv", header = T, sep = ",",
-                 drop=c('ID'),
                  stringsAsFactors=F,integer64="double",data.table=F)
   test <- fread("./data/test-2.csv", header = T, sep = ",",stringsAsFactors=F,integer64="double",data.table=F)
 }
+xtraDemographic <- fread("./additionalData/cityInfo.csv", header=T,sep=",")
+train <- join(train, xtraDemographic, by="ID", type="left")
+test <- join(test, xtraDemographic, by="ID", type="left")
+train$ID <- NULL
+
 for (col in 1:ncol(train)) { # change logicals into numerics
   if (is.logical(train[[col]])) train[[col]] <- as.numeric(train[[col]])
 }
@@ -326,7 +329,7 @@ test <- imputeNAs(test)
 # Correlations
 ###########################
 cat("Correlation", fill=T)
-trainCor <- cor( sample_n(select(train_dev, -target), 10000)) # TODO: effect of this number?
+trainCor <- cor( sample_n(select(train_dev, -target), min(nrow(train_dev),10000))) # TODO: effect of this number?
 #  trainCor <- cor( sample_n(select(train_dev, -target), 10000), use="everything") # use="everything", "all.obs", "complete.obs", "na.or.complete", or "pairwise.complete.obs"
 
 # Pair-wise selection of predictors with high correlation. From each pair,
@@ -340,10 +343,13 @@ corrMetrics <- data.frame(which(trainCor > settings.correlationThreshold, arr.in
   mutate( A_AUC = AUCVal, AUCVal = NULL ) %>% 
   inner_join( select(dataMetrics, AUCVal, FinalName), by=c("B" = "FinalName")) %>%
   mutate( B_AUC = AUCVal, AUCVal = NULL ) %>% 
-  mutate( Drop = ifelse(A_AUC>B_AUC, B, A)) %>%
-  rowwise() %>%
-  mutate( Corr = trainCor[row,col]) %>%
-  arrange(desc(Corr))
+  mutate( Drop = ifelse(A_AUC>B_AUC, B, A))
+corrMetrics$Corr <- 0
+for (n in 1:nrow(corrMetrics)) {
+  corrMetrics$Corr[n] <- trainCor[corrMetrics$row[n], corrMetrics$col[n]]
+}
+corrMetrics <- arrange(corrMetrics, desc(Corr))
+
 print(head(corrMetrics))
 
 highlyCorrelatedVars <- c()
