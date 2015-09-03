@@ -27,15 +27,19 @@ try(dev.off(),silent=T) # prevent graphics errors
 set.seed(314159)
 Sys.setlocale("LC_TIME", "C")
 epoch <- now()
+gc()
+
+settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
+#settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
 
 settings.doCaretTuning <- F # set to T to use caret for finding model tuning parameters, otherwise direct model
 settings.doGBM <- F
 settings.doXGBoost <- T
-settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
 settings.doScoring <- !settings.useSmallSample # score the test set for the Kaggle LB
 settings.doGeneratePlots <- F # whether to generate plots for every field 
-settings.symbinResidualThreshold <- 0.02
-settings.cutoffUnivariateAUC <- 0.52 # predictors with lower AUC will be deselected
+settings.symbinResidualThreshold <- 0.01
+settings.numbinNumBins <- 100
+settings.cutoffUnivariateAUC <- 0.51 # predictors with lower AUC will be deselected
 settings.correlationThreshold <- 0.80 # predictors with higher correlation will be deselected
 
 settings.gbm.n.trees <- 300 # 300 for benchmarking, 1000 for real score
@@ -47,19 +51,23 @@ settings.gbm.cv.folds <- 3 # often 3 on Mac, 5 on Lenovo
 # Read Data
 ###########################
 
-train <- fread("./data/train-2.csv", header = T, sep = ",",
-               drop=c('ID'),
-               stringsAsFactors=F,integer64="double",data.table=F)
-test <- fread("./data/test-2.csv", header = T, sep = ",",stringsAsFactors=F,integer64="double",data.table=F)
+if(settings.useSmallSample) {
+  train <- fread("./data/train_small.csv", header = T, sep = ",",
+                 drop=c('ID'),
+                 stringsAsFactors=F,integer64="double",data.table=F)
+  test <- fread("./data/test_small.csv", header = T, sep = ",",
+                stringsAsFactors=F,integer64="double",data.table=F)
+} else {
+  train <- fread("./data/train-2.csv", header = T, sep = ",",
+                 drop=c('ID'),
+                 stringsAsFactors=F,integer64="double",data.table=F)
+  test <- fread("./data/test-2.csv", header = T, sep = ",",stringsAsFactors=F,integer64="double",data.table=F)
+}
 for (col in 1:ncol(train)) { # change logicals into numerics
   if (is.logical(train[[col]])) train[[col]] <- as.numeric(train[[col]])
 }
 for (col in 1:ncol(test)) {
   if (is.logical(test[[col]])) test[[col]] <- as.numeric(test[[col]])
-}
-if (settings.useSmallSample) { # speed up things
-  train <- sample_frac(train, 0.20)
-  test <- sample_frac(test, 0.20)
 }
 
 testIDs <- test$ID
@@ -77,14 +85,14 @@ train_dev <- train[ trainIndex,]
 train_val <- train[-trainIndex,]
 
 ###########################
-# Data Analysis
+# Preliminary Data Analysis
 ###########################
 
-dataMetrics <- dataAnalysis(train_dev, train_val, test, "target", settings.symbinResidualThreshold,
+dataMetrics <- dataAnalysis(train_dev, train_val, test, 
                             settings.doGeneratePlots, "plots")
 
 # dump & write to files for external analysis
-print(head(dataMetrics))
+#print(head(dataMetrics))
 write.table(cbind(rownames(dataMetrics), data.frame(lapply(dataMetrics, as.character), stringsAsFactors=FALSE)), 
             "./dataMetrics.csv", sep=";", row.names=F,
             col.names = c("Field", names(dataMetrics)))
@@ -102,7 +110,7 @@ rm(train) # no longer need this
 gc()
 
 ###########################
-# Add/remove fields
+# Feature engineering
 ###########################
 
 print("Feature engineering")
@@ -135,7 +143,7 @@ processDateFlds <- function(ds, colNames) {
 }
 
 dateFldNames <- rownames(dataMetrics) [dataMetrics$isDate]
-cat("Date fields: ", dateFldNames, fill=T)
+cat("Date fields: ", dateFldNames, " (", length(dateFldNames), ")", fill=T)
 
 train_dev <- processDateFlds(train_dev, dateFldNames)
 train_val <- processDateFlds(train_val, dateFldNames)
@@ -162,97 +170,198 @@ train_dev <- combineDates(train_dev, paste( dateFldNames, '_asdate', sep=""))
 train_val <- combineDates(train_val, paste( dateFldNames, '_asdate', sep=""))
 test <- combineDates(test, paste( dateFldNames, '_asdate', sep=""))
 
-# Replace symbolic fields by mean outcome
-# Assume integer columns with not so many distincts are also categorical
-symbinColNames <- rownames(dataMetrics) [(dataMetrics$isSymbolic & !dataMetrics$isDate) | 
-                                           (dataMetrics$Overlap == 1 & dataMetrics$className == "integer")]
-cat("Symbinning symbolic columns: ", symbinColNames, fill=T)
-for (colName in symbinColNames) {
-  if (colName != "target") {
-    cat("Symbinning: ", colName, fill=T)
-    binner <- createSymBin2(train_dev[[colName]], train_dev$target, 
-                            threshold=settings.symbinResidualThreshold) # min casecount per bin
-    
-    if (settings.doGeneratePlots) {
-      sb.plotOne(binner, train_dev, train_val, test, colName, "target", plotFolder="plots")
-    }
-    
-    train_dev[[colName]] <- applySymBin(binner, train_dev[[colName]])
-    train_val[[colName]] <- applySymBin(binner, train_val[[colName]])
-    test[[colName]]      <- applySymBin(binner, test[[colName]])
-    
-    # replace column but change name
-    colnames(train_dev) [which(colnames(train_dev) == colName)] <- 
-      colnames(train_val) [which(colnames(train_val) == colName)] <- 
-      colnames(test) [which(colnames(test) == colName)] <- paste(colName, "_symbin", sep="")
-  }
-}
-
-# Numbinning of numerics with many distinct values - hope to reduce overfitting
-for (colName in names(train_dev)) {
-  if (colName != "target" && is.numeric(train_dev[[colName]]) && length(unique(train_dev[[colName]])) > 100) {
-    cat("Num binning: ", colName, fill=T)  
-    
-    binner <- createNumBin(train_dev[[colName]],train_val[[colName]],test[[colName]],
-                           train_dev$target,train_val$target,100)
-    if (settings.doGeneratePlots) {
-      plotNumBin(binner, "plots")
-    }
-    
-    train_dev[[colName]] <- applyNumBin(binner, train_dev[[colName]])
-    train_val[[colName]] <- applyNumBin(binner, train_val[[colName]])
-    test[[colName]] <- applyNumBin(binner, test[[colName]])
-    
-    # replace column but change name
-    colnames(train_dev) [which(colnames(train_dev) == colName)] <- 
-      colnames(train_val) [which(colnames(train_val) == colName)] <- 
-      colnames(test) [which(colnames(test) == colName)] <- paste(colName, "_numbin", sep="")
-  }
-}
-
-# Write data analysis results again, now including the newly created fields
+# Add newly engineered fields to the data metrics overview
 newFields <- setdiff(setdiff(colnames(train_dev), rownames(dataMetrics)),"target")
 newFieldsWithTarget <- c(newFields, "target")
 metricsNewFields <- dataAnalysis(train_dev[, newFieldsWithTarget], 
                                  train_val[, newFieldsWithTarget],
                                  test[, newFields],
-                                 "target",
-                                 settings.symbinResidualThreshold,
                                  settings.doGeneratePlots, "plots")
 dataMetrics <- rbind(dataMetrics, metricsNewFields)
+
+###########################
+# Data Analysis
+###########################
+
+print("Data Analysis")
+
+dataMetrics$AUCVal <- NA
+dataMetrics$AUCDev <- NA
+dataMetrics$Binning <- NA
+dataMetrics$BinParam <- NA
+dataMetrics$FinalName <- NA
+
+# if all is well, some fields will now not be binned
+
+for (colName in colnames(test)) {
+  dataMetricRow <- which(rownames(dataMetrics) == colName)
+  if (dataMetrics$nDistinct[dataMetricRow] > 2) {
+    if (dataMetrics$isSymbolic[dataMetricRow] && !dataMetrics$isDate[dataMetricRow]) {
+      # do symbolic binning with residuals
+      
+      cat("SymBin fld:", colName, fill=T)
+      binner <- createSymBin2(train_dev[[colName]], train_dev$target, settings.symbinResidualThreshold)
+      if (settings.doGeneratePlots) {
+        sb.plotOne(binner, train_dev, train_val, test, colName, "target", plotFolder="plots")
+      }
+      print(binner)
+      
+      train_dev[[colName]] <- applySymBin(binner, train_dev[[colName]])
+      train_val[[colName]] <- applySymBin(binner, train_val[[colName]])
+      test[[colName]]      <- applySymBin(binner, test[[colName]])
+      
+      # replace column but change name
+      newColName <- paste(colName, "_symbin", sep="")
+      colnames(train_dev) [which(colnames(train_dev) == colName)] <- 
+        colnames(train_val) [which(colnames(train_val) == colName)] <- 
+        colnames(test) [which(colnames(test) == colName)] <- newColName
+      
+      # keep AUC
+      dataMetrics$AUCVal[dataMetricRow] <- auc(train_val$target, train_val[[newColName]])
+      dataMetrics$AUCDev[dataMetricRow] <- auc(train_dev$target, train_dev[[newColName]])
+      dataMetrics$Binning[dataMetricRow] <- "symbin"
+      dataMetrics$BinParam [dataMetricRow] <- settings.symbinResidualThreshold
+      dataMetrics$FinalName[dataMetricRow] <- newColName
+      
+    } else if (dataMetrics$className[dataMetricRow] == "integer" && dataMetrics$Overlap[dataMetricRow] == 1) { # not sure about this - maybe still need minimum binsize
+      # do symbolic binning with 0 threshold (= recoding)
+      
+      cat("Recode fld:", colName, fill=T)
+      binner <- createSymBin2(train_dev[[colName]], train_dev$target, settings.symbinResidualThreshold)
+      if (settings.doGeneratePlots) {
+        sb.plotOne(binner, train_dev, train_val, test, colName, "target", plotFolder="plots")
+      }
+      print(binner)
+      
+      train_dev[[colName]] <- applySymBin(binner, train_dev[[colName]])
+      train_val[[colName]] <- applySymBin(binner, train_val[[colName]])
+      test[[colName]]      <- applySymBin(binner, test[[colName]])
+      
+      # replace column but change name
+      newColName <- paste(colName, "_recode", sep="")
+      colnames(train_dev) [which(colnames(train_dev) == colName)] <- 
+        colnames(train_val) [which(colnames(train_val) == colName)] <- 
+        colnames(test) [which(colnames(test) == colName)] <- newColName
+      
+      # keep AUC
+      dataMetrics$AUCVal[dataMetricRow] <- auc(train_val$target, train_val[[newColName]])
+      dataMetrics$AUCDev[dataMetricRow] <- auc(train_dev$target, train_dev[[newColName]])
+      dataMetrics$Binning[dataMetricRow] <- "recode"
+      dataMetrics$BinParam [dataMetricRow] <- 0
+      dataMetrics$FinalName[dataMetricRow] <- newColName
+      
+    } else if (dataMetrics$nDistinct[dataMetricRow] > settings.numbinNumBins) { 
+      # do numeric binning 
+      
+      cat("NumBin fld:", colName, fill=T)
+      binner <- createNumBin(train_dev[[colName]],train_val[[colName]],test[[colName]],
+                             train_dev$target,train_val$target,settings.numbinNumBins)
+      if (settings.doGeneratePlots) {
+        plotNumBin(binner, "plots")
+      }
+      print(binner)
+      
+      train_dev[[colName]] <- applyNumBin(binner, train_dev[[colName]])
+      train_val[[colName]] <- applyNumBin(binner, train_val[[colName]])
+      test[[colName]] <- applyNumBin(binner, test[[colName]])
+      
+      # replace column but change name
+      newColName <- paste(colName, "_numbin", sep="")
+      colnames(train_dev) [which(colnames(train_dev) == colName)] <- 
+        colnames(train_val) [which(colnames(train_val) == colName)] <- 
+        colnames(test) [which(colnames(test) == colName)] <- newColName
+
+      # keep AUC
+      dataMetrics$AUCVal[dataMetricRow] <- auc(train_val$target, train_val[[newColName]])
+      dataMetrics$AUCDev[dataMetricRow] <- auc(train_dev$target, train_dev[[newColName]])
+      dataMetrics$Binning[dataMetricRow] <- "numbin"
+      dataMetrics$BinParam [dataMetricRow] <- settings.numbinNumBins
+      dataMetrics$FinalName[dataMetricRow] <- newColName
+    } else {
+      # keep AUC
+      dataMetrics$AUCVal[dataMetricRow] <- auc(train_val$target, train_val[[colName]])
+      dataMetrics$AUCDev[dataMetricRow] <- auc(train_dev$target, train_dev[[colName]])
+      dataMetrics$Binning[dataMetricRow] <- "none"
+      dataMetrics$BinParam [dataMetricRow] <- NA
+      dataMetrics$FinalName[dataMetricRow] <- colName
+    }
+  } else {
+    # < 2 distinct values
+    dataMetrics$AUCVal[dataMetricRow] <- 0.50
+    dataMetrics$AUCDev[dataMetricRow] <- 0.50
+    dataMetrics$Binning[dataMetricRow] <- NA
+    dataMetrics$BinParam [dataMetricRow] <- NA
+    dataMetrics$FinalName[dataMetricRow] <- colName
+  }
+}
+
+# Write data analysis results again, now including the newly created fields
 write.table(cbind(rownames(dataMetrics), 
                   data.frame(lapply(dataMetrics, as.character), stringsAsFactors=FALSE)), 
             "./dataMetrics.csv", sep=";", row.names=F,
             col.names = c("Field", names(dataMetrics)))
 
+###########################
+# Feature selection
+###########################
+
 print("Feature selection")
+
+# Univariate selection
+removedUnivariate <- rownames(dataMetrics) [dataMetrics$isSymbolic | 
+                                          (!is.na(dataMetrics$AUCVal) &
+                                             dataMetrics$AUCVal < settings.cutoffUnivariateAUC)]
+cat("Removed after univariate analysis:", length(removedUnivariate), fill=T)
+train_dev <- train_dev[,!(names(train_dev) %in% removedUnivariate)]
+train_val <- train_val[,!(names(train_val) %in% removedUnivariate)]
+test      <- test[,!(names(test) %in% removedUnivariate)]
+cat("Remaining after univariate selection:", length(colnames(train_dev)), fill=T)
 
 # Brute force NA imputation - not sure. Maybe not needed, and knn would be beter anyhow.
 train_dev <- imputeNAs(train_dev)
 train_val <- imputeNAs(train_val)
 test <- imputeNAs(test)
 
-# Univariate selection
-removedFields <- rownames(dataMetrics) [dataMetrics$isSymbolic | 
-                                          (!is.na(dataMetrics$AUC_rec_val) &
-                                             dataMetrics$AUC_rec_val < settings.cutoffUnivariateAUC & 
-                                             dataMetrics$AUC_rec_val > (1-settings.cutoffUnivariateAUC))]
-cat("Removed after univariate analysis:", removedFields, " (", length(removedFields), ")", fill=T)
-train_dev <- train_dev[,!(names(train_dev) %in% removedFields)]
-train_val <- train_val[,!(names(train_val) %in% removedFields)]
-test      <- test[,!(names(test) %in% removedFields)]
-cat("Remaining after univariate selection:", colnames(train_dev), " (", length(colnames(train_dev)), ")", fill=T)
-
 ###########################
 # Correlations
 ###########################
 cat("Correlation", fill=T)
 trainCor <- cor( sample_n(select(train_dev, -target), 10000)) # TODO: effect of this number?
-trainCor[is.na(trainCor)] <- 0
-#corrplot(trainCor, method="circle", type="upper", order = "hclust", addrect = 3)
-highlyCorrelatedVars <- rownames(trainCor) [findCorrelation(trainCor, cutoff=settings.correlationThreshold)]
+#  trainCor <- cor( sample_n(select(train_dev, -target), 10000), use="everything") # use="everything", "all.obs", "complete.obs", "na.or.complete", or "pairwise.complete.obs"
+
+# Pair-wise selection of predictors with high correlation. From each pair,
+# deselect the one with the lower univariate AUC. The resulting 'corrMetrics' 
+# data frame contains names and metrics of all highly correlated variables.
+corrMetrics <- data.frame(which(trainCor > settings.correlationThreshold, arr.ind=TRUE), row.names=NULL) %>% 
+  filter( col > row) %>%
+  mutate( A = rownames(trainCor)[row]) %>%
+  mutate( B = rownames(trainCor)[col]) %>%
+  inner_join( select(dataMetrics, AUCVal, FinalName), by=c("A" = "FinalName")) %>%
+  mutate( A_AUC = AUCVal, AUCVal = NULL ) %>% 
+  inner_join( select(dataMetrics, AUCVal, FinalName), by=c("B" = "FinalName")) %>%
+  mutate( B_AUC = AUCVal, AUCVal = NULL ) %>% 
+  mutate( Drop = ifelse(A_AUC>B_AUC, B, A)) %>%
+  rowwise() %>%
+  mutate( Corr = trainCor[row,col]) %>%
+  arrange(desc(Corr))
+print(head(corrMetrics))
+
+highlyCorrelatedVars <- c()
+for (dropRow in 1:nrow(corrMetrics)) {
+  if (!corrMetrics$A[dropRow] %in% highlyCorrelatedVars && !corrMetrics$B[dropRow] %in% highlyCorrelatedVars) {
+    highlyCorrelatedVars <- c(highlyCorrelatedVars, corrMetrics$Drop[dropRow])
+  }
+}
+
+linearCombos <- findLinearCombos(as.matrix(train_dev))
+removeLinear <- names(train_dev)[ linearCombos[["remove"]]]
+
+cat("Removing", length(highlyCorrelatedVars), "highly correlated variables", fill=T)
+cat("Removing", length(removeLinear), "linear combinations", fill=T)
+
+highlyCorrelatedVars <- c(highlyCorrelatedVars, removeLinear)
+
 if (length(highlyCorrelatedVars) > 0) {
-  cat("Removing highly correlated variables: ", highlyCorrelatedVars, " (", length(highlyCorrelatedVars), ")", fill=T)
   train_dev <- train_dev[!(names(train_dev) %in% highlyCorrelatedVars)]
   train_val <- train_val[!(names(train_val) %in% highlyCorrelatedVars)]
   test      <- test[!(names(test) %in% highlyCorrelatedVars)]
@@ -260,10 +369,8 @@ if (length(highlyCorrelatedVars) > 0) {
   #trainCor <- cor(select(imputeNAs(train_dev), -IsClick))
   #corrplot(trainCor, method="circle", type="upper", order = "hclust", addrect = 3)
 } else {
-  print("No highly correlated variables according to trim.matrix")
+  print("No highly correlated variables")
 }
-
-cat("Remaining after correlation:", colnames(train_dev), " (", length(colnames(train_dev)), ")", fill=T)
 
 # Dump the data here. Taking the col names from our analysis but using the original data.
 # Just for the purpose of analyzing with ADM/PAD limiting the number of columns to < 1000 - hopefully.
@@ -286,13 +393,16 @@ if (F) {
 # Fit Logistic regression (as a benchmark)
 #########################################
 logitModel  <- glm(target ~ ., data=train_dev) # family = "binomial"
+cat("Number of vars: ", length(colnames(train_dev)), fill=T)
 cat('GLM benchmark Val AUC:', 
     auc(train_val$target, predict(logitModel, train_val)),
     'Dev AUC:',
     auc(train_dev$target, predict(logitModel, train_dev)), 
     fill=T )
 
-##stop("STOPPING AFTER GLM")
+if (settings.useSmallSample) {
+  stop("STOPPING AFTER GLM")
+}
 
 ###########################
 # Fit model
@@ -378,12 +488,16 @@ if (settings.doXGBoost) {
   
   watchlist <- list(eval = dtrain_val, train = dtrain_dev)
   
+  # see https://www.kaggle.com/mrooijer/springleaf-marketing-response/xgboost-run-local/code
   param <- list(  objective           = "binary:logistic", 
                   # booster = "gblinear",
                   eta                 = 0.01,
-                  max_depth           = 8,  # too high will overfit
-                  subsample           = 0.8,
-                  colsample_bytree    = 0.8, # column subsampling ratio
+                  max_depth           = 9,  
+                  subsample           = 0.7,
+                  colsample_bytree    = 0.5, # column subsampling ratio
+                  min_child_weight    = 6,
+                  alpha               = 4,
+                  nthreads            = 3,
                   eval_metric         = "auc"
                   # alpha = 0.0001, 
                   # lambda = 1
@@ -391,24 +505,25 @@ if (settings.doXGBoost) {
   
   xgbModel <- xgb.train(params              = param, 
                         data                = dtrain_dev, 
-                        nrounds             = 3000,
+                        nrounds             = 3000, # best is not always last - not when overfitting
                         verbose             = 1, 
-                        early.stop.round    = NULL,
+                        print.every.n       = 10,
+                        early.stop.round    = 100,
                         watchlist           = watchlist,
                         maximize            = TRUE)
   
-  #cat("Best:",xgbModel$bestInd,fill=T)
+  cat("Best XGB iteration:",xgbModel$bestInd,fill=T)
   
   # feature importance
   importance_mx <- xgb.importance(names(train_dev), model=xgbModel)
   print( xgb.plot.importance(importance_mx[1:20,]) ) 
   
   # predictions
-  predictions <- predict(xgbModel, data.matrix(select(train_val, -target)))
-  predictions_dev <- predict(xgbModel, data.matrix(select(train_dev, -target)))
+  predictions <- predict(xgbModel, data.matrix(select(train_val, -target)),ntreelimit=xgbModel$bestInd)
+  predictions_dev <- predict(xgbModel, data.matrix(select(train_dev, -target)),ntreelimit=xgbModel$bestInd)
   if (settings.doScoring) {
     print("Scoring test set")
-    pr <- predict(xgbModel, data.matrix(test))
+    pr <- predict(xgbModel, data.matrix(test),ntreelimit=xgbModel$bestInd)
   }
 }
 

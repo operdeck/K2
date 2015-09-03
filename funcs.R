@@ -28,12 +28,13 @@ createSymBin2 <- function(val, outcome, threshold = 0.001)
   if (any(is.na(g$val))) {
     g$t[is.na(g$val)]=FALSE
   }
+  g$val <- as.character(g$val)
   # select only values that have frequency above threshold
   result <- filter(g, t)
   # calculate outcome for all other values, or if there are none, the overall average
   nRemainingCases <- total - sum(result$cases)
   if (nRemainingCases > 0) {
-    residualOutcome <-
+    residualOutcome <- # TODO not always correct! Avg for residual or overal, when??
       sum( (filter(g, !t) %>% mutate( sumavgoutcome = avgoutcome*cases ))$sumavgoutcome ) / nRemainingCases
   } else {
     residualOutcome <- mean(outcome, na.rm=TRUE)
@@ -58,7 +59,7 @@ applySymBinIndex <- function(binning, values)
   if (nrow(binning) == 1) {
     return (rep(binning$binindex[nrow(binning)], length(values)))  
   } else {
-    df <- data.frame(values)
+    df <- data.frame(as.character(values), stringsAsFactors = F)
     setnames(df, c('val'))
     r <- left_join(df, binning[seq(1:(nrow(binning)-1)),], by="val")
     #print(r)
@@ -73,7 +74,7 @@ applySymBin <- function(binning, values)
   if (nrow(binning) == 1) {
     return (rep(binning$avgoutcome[nrow(binning)], length(values)))  
   } else {
-    df <- data.frame(values)
+    df <- data.frame(as.character(values), stringsAsFactors = F)
     setnames(df, c('val'))
     r <- left_join(df, binning[seq(1:(nrow(binning)-1)),], by="val")
     #print(r)
@@ -293,7 +294,7 @@ isBoolean <- function(vec) {
 }
 
 # DA for one vector - assuming the dataframes all contain only one field
-dataAnalysisOne <- function(dfDev, dfVal, dfTest, vDevTarget, vValTarget, fldName, threshold, 
+dataAnalysisOne <- function(dfDev, dfVal, dfTest, fldName, 
                             generatePlots=F, plotFolder=NULL)
 {
   dsFull <- rbind(dfDev, dfVal)
@@ -315,17 +316,16 @@ dataAnalysisOne <- function(dfDev, dfVal, dfTest, vDevTarget, vValTarget, fldNam
   # Get AUC estimates for all predictors
   dataMetrics$Overlap <- NA
   dataMetrics$ksTest <- NA
-  dataMetrics$AUC_raw_dev <- NA
-  dataMetrics$AUC_raw_val <- NA
-  dataMetrics$AUC_rec_dev <- NA
-  dataMetrics$AUC_rec_val <- NA
+  
+#   dataMetrics$AUC_raw_dev <- NA
+#   dataMetrics$AUC_raw_val <- NA
+#   dataMetrics$AUC_rec_dev <- NA
+#   dataMetrics$AUC_rec_val <- NA
   
   if (nrow(dataMetrics) != 1) {
     print(dataMetrics)
     stop("STOP: expected one row in data metrics frame")
   }
-  
-  cat("DA for field:",fldName,fill=T)
   
   u1 <- unique(dsFull[[1]])
   u2 <- unique(dfTest[[1]])
@@ -370,46 +370,45 @@ dataAnalysisOne <- function(dfDev, dfVal, dfTest, vDevTarget, vValTarget, fldNam
           "tot:", specialTot, "\n")
     }    
   }
-  
-  if (dataMetrics$nDistinct[1] > 1) {
-    if (dataMetrics$isNumeric[1]) {
-      # fit a mini regression model?
-#       lm.model <- lm(target ~ ., data=dfDev[, c("target",fldName)])
-#       pf_dev <- data.frame( dfDev[[1]] )
-#       pf_val <- data.frame( dfVal[[1]])
-#       names(pf_dev) <- c(fldName)
-#       names(pf_val) <- c(fldName)
-#       dataMetrics$AUC_raw_dev[1] <- auc(vDevTarget, predict.lm(lm.model, pf_dev))
-#       dataMetrics$AUC_raw_val[1] <- auc(vValTarget, predict.lm(lm.model, pf_val))
-      dataMetrics$AUC_raw_dev[1] <- auc(vDevTarget, dfDev[[1]])
-      dataMetrics$AUC_raw_val[1] <- auc(vValTarget, dfVal[[1]])
-      sb <- createSymBin2(dfDev[[1]], vDevTarget, threshold)
-      #print(sb) # debug...
-      dataMetrics$AUC_rec_dev[1] <- auc(vDevTarget, applySymBin(sb, dfDev[[1]]))
-      dataMetrics$AUC_rec_val[1] <- auc(vValTarget, applySymBin(sb, dfVal[[1]]))
-    } else {
-      sb <- createSymBin2(dfDev[[1]], vDevTarget, threshold)
-      dataMetrics$AUC_rec_dev[1] <- auc(vDevTarget, applySymBin(sb, dfDev[[1]]))
-      dataMetrics$AUC_rec_val[1] <- auc(vValTarget, applySymBin(sb, dfVal[[1]]))
-    }
-  } else {
-    dataMetrics$AUC_rec_dev[1] <- dataMetrics$AUC_rec_val[1] <- 0.50
-  }
+#   
+#   if (dataMetrics$nDistinct[1] > 1) {
+#     if (dataMetrics$isNumeric[1]) {
+#       # fit a mini regression model?
+# #       lm.model <- lm(target ~ ., data=dfDev[, c("target",fldName)])
+# #       pf_dev <- data.frame( dfDev[[1]] )
+# #       pf_val <- data.frame( dfVal[[1]])
+# #       names(pf_dev) <- c(fldName)
+# #       names(pf_val) <- c(fldName)
+# #       dataMetrics$AUC_raw_dev[1] <- auc(vDevTarget, predict.lm(lm.model, pf_dev))
+# #       dataMetrics$AUC_raw_val[1] <- auc(vValTarget, predict.lm(lm.model, pf_val))
+#       dataMetrics$AUC_raw_dev[1] <- auc(vDevTarget, dfDev[[1]])
+#       dataMetrics$AUC_raw_val[1] <- auc(vValTarget, dfVal[[1]])
+#       sb <- createSymBin2(dfDev[[1]], vDevTarget, threshold)
+#       #print(sb) # debug...
+#       dataMetrics$AUC_rec_dev[1] <- auc(vDevTarget, applySymBin(sb, dfDev[[1]]))
+#       dataMetrics$AUC_rec_val[1] <- auc(vValTarget, applySymBin(sb, dfVal[[1]]))
+#     } else {
+#       sb <- createSymBin2(dfDev[[1]], vDevTarget, threshold)
+#       dataMetrics$AUC_rec_dev[1] <- auc(vDevTarget, applySymBin(sb, dfDev[[1]]))
+#       dataMetrics$AUC_rec_val[1] <- auc(vValTarget, applySymBin(sb, dfVal[[1]]))
+#     }
+#   } else {
+#     dataMetrics$AUC_rec_dev[1] <- dataMetrics$AUC_rec_val[1] <- 0.50
+#   }
   
   return(dataMetrics)
 }
 
 # Data analysis on a train set (already split in dev/val)
-dataAnalysis <- function(dfDev, dfVal, dfTest, outcomeName, threshold=0, generatePlots=F, plotFolder=NULL)
+dataAnalysis <- function(dfDev, dfVal, dfTest, generatePlots=F, plotFolder=NULL)
 {
-  print("Analyzing basic metrics for all predictors")
   metrics <- NULL
   for (fldName in names(dfTest)) {
+    cat("Basic DA for: ", fldName, fill=T)
     metricOne <- dataAnalysisOne(dfDev[fldName], dfVal[fldName], dfTest[fldName], # data frames
-                                 dfDev[[outcomeName]], dfVal[[outcomeName]], # vectors
-                                 fldName, threshold, 
+                                 fldName, 
                                  generatePlots, plotFolder)
-    print(metricOne)
+    #print(metricOne)
     if (is.null(metrics)) {
       metrics <- metricOne
     } else {
