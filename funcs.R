@@ -317,11 +317,6 @@ dataAnalysisOne <- function(dfDev, dfVal, dfTest, fldName,
   dataMetrics$Overlap <- NA
   dataMetrics$ksTest <- NA
   
-#   dataMetrics$AUC_raw_dev <- NA
-#   dataMetrics$AUC_raw_val <- NA
-#   dataMetrics$AUC_rec_dev <- NA
-#   dataMetrics$AUC_rec_val <- NA
-  
   if (nrow(dataMetrics) != 1) {
     print(dataMetrics)
     stop("STOP: expected one row in data metrics frame")
@@ -370,31 +365,6 @@ dataAnalysisOne <- function(dfDev, dfVal, dfTest, fldName,
           "tot:", specialTot, "\n")
     }    
   }
-#   
-#   if (dataMetrics$nDistinct[1] > 1) {
-#     if (dataMetrics$isNumeric[1]) {
-#       # fit a mini regression model?
-# #       lm.model <- lm(target ~ ., data=dfDev[, c("target",fldName)])
-# #       pf_dev <- data.frame( dfDev[[1]] )
-# #       pf_val <- data.frame( dfVal[[1]])
-# #       names(pf_dev) <- c(fldName)
-# #       names(pf_val) <- c(fldName)
-# #       dataMetrics$AUC_raw_dev[1] <- auc(vDevTarget, predict.lm(lm.model, pf_dev))
-# #       dataMetrics$AUC_raw_val[1] <- auc(vValTarget, predict.lm(lm.model, pf_val))
-#       dataMetrics$AUC_raw_dev[1] <- auc(vDevTarget, dfDev[[1]])
-#       dataMetrics$AUC_raw_val[1] <- auc(vValTarget, dfVal[[1]])
-#       sb <- createSymBin2(dfDev[[1]], vDevTarget, threshold)
-#       #print(sb) # debug...
-#       dataMetrics$AUC_rec_dev[1] <- auc(vDevTarget, applySymBin(sb, dfDev[[1]]))
-#       dataMetrics$AUC_rec_val[1] <- auc(vValTarget, applySymBin(sb, dfVal[[1]]))
-#     } else {
-#       sb <- createSymBin2(dfDev[[1]], vDevTarget, threshold)
-#       dataMetrics$AUC_rec_dev[1] <- auc(vDevTarget, applySymBin(sb, dfDev[[1]]))
-#       dataMetrics$AUC_rec_val[1] <- auc(vValTarget, applySymBin(sb, dfVal[[1]]))
-#     }
-#   } else {
-#     dataMetrics$AUC_rec_dev[1] <- dataMetrics$AUC_rec_val[1] <- 0.50
-#   }
   
   return(dataMetrics)
 }

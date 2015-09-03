@@ -29,8 +29,8 @@ Sys.setlocale("LC_TIME", "C")
 epoch <- now()
 gc()
 
-settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
-#settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
+#settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
+settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
 
 settings.doCaretTuning <- F # set to T to use caret for finding model tuning parameters, otherwise direct model
 settings.doGBM <- F
@@ -74,10 +74,10 @@ testIDs <- test$ID
 test$ID <- NULL
 
 # Special extra fields - before doing any further processing
-# Add variable with nr of missing values per row
+# Add variable with nr of missing values per row. Make double to ensure numeric treatment.
 print("Counting NA's per row - time consuming")
-train$xtraNumNAs <- apply(train, 1, function(z) sum(is.na(z)))
-test$xtraNumNAs <- apply(test, 1, function(z) sum(is.na(z)))
+train$xtraNumNAs <- as.double(apply(train, 1, function(z) sum(is.na(z))))
+test$xtraNumNAs <- as.double(apply(test, 1, function(z) sum(is.na(z))))
 
 # Dev/val split
 trainIndex <- createDataPartition(train$target, p=0.80, list=FALSE)
@@ -121,15 +121,15 @@ processDateFlds <- function(ds, colNames) {
   for (colName in colNames) {
     #cat("Date: ", colName, fill=T)
     asDate <- strptime(ds[[colName]], format="%d%b%y")
-    asDate_wday <- wday(asDate)
+    asDate_wday <- as.character( c("Sun","Mon","Tue","Wed","Thu","Fri","Sat") [wday(asDate)])
     asDate_week <- week(asDate)
     if (is.null(extraDateFlds)) {
-      extraDateFlds <- data.frame(asDate_wday, asDate_week)
+      extraDateFlds <- data.frame(asDate_wday, asDate_week, stringsAsFactors = F)
       colnames(extraDateFlds) <- c(paste(colName, "_wday", sep=""),
                                    paste(colName, "_week", sep=""))
     } else {
       prevNames <- colnames(extraDateFlds)
-      extraDateFlds <- cbind(extraDateFlds, asDate_wday, asDate_week)
+      extraDateFlds <- cbind(extraDateFlds, asDate_wday, asDate_week, stringsAsFactors = F)
       colnames(extraDateFlds) <- c(prevNames, 
                                    paste(colName, "_wday", sep=""),
                                    paste(colName, "_week", sep=""))
@@ -196,19 +196,34 @@ dataMetrics$FinalName <- NA
 for (colName in colnames(test)) {
   dataMetricRow <- which(rownames(dataMetrics) == colName)
   if (dataMetrics$nDistinct[dataMetricRow] > 2) {
-    if (dataMetrics$isSymbolic[dataMetricRow] && !dataMetrics$isDate[dataMetricRow]) {
+    if ((dataMetrics$isSymbolic[dataMetricRow] && !dataMetrics$isDate[dataMetricRow]) ||
+      (dataMetrics$className[dataMetricRow] == "integer" && dataMetrics$Overlap[dataMetricRow] == 1)) {
       # do symbolic binning with residuals
       
       cat("SymBin fld:", colName, fill=T)
-      binner <- createSymBin2(train_dev[[colName]], train_dev$target, settings.symbinResidualThreshold)
-      if (settings.doGeneratePlots) {
-        sb.plotOne(binner, train_dev, train_val, test, colName, "target", plotFolder="plots")
+
+      paramRange <- c(0.001,0.002,0.005,0.01,0.02, seq(10,40,by=10)/nrow(train_dev)) # instead of settings.symbinResidualThreshold
+      bestPerf <- 0
+      for (param in paramRange) {
+        binner <- createSymBin2(train_dev[[colName]], train_dev$target, 
+                                param)
+        perf <- auc(train_val$target, applySymBin(binner, train_val[[colName]]))
+        if (perf > bestPerf) {
+          bestPerf <- perf
+          bestBinner <- binner
+          bestParam <- param
+        }
+        cat("Symbin params:",param,perf,bestPerf,bestParam,fill=T)
       }
-      print(binner)
       
-      train_dev[[colName]] <- applySymBin(binner, train_dev[[colName]])
-      train_val[[colName]] <- applySymBin(binner, train_val[[colName]])
-      test[[colName]]      <- applySymBin(binner, test[[colName]])
+      if (settings.doGeneratePlots) {
+        sb.plotOne(bestBinner, train_dev, train_val, test, colName, "target", plotFolder="plots")
+      }
+      print(bestBinner)
+      
+      train_dev[[colName]] <- applySymBin(bestBinner, train_dev[[colName]])
+      train_val[[colName]] <- applySymBin(bestBinner, train_val[[colName]])
+      test[[colName]]      <- applySymBin(bestBinner, test[[colName]])
       
       # replace column but change name
       newColName <- paste(colName, "_symbin", sep="")
@@ -220,50 +235,36 @@ for (colName in colnames(test)) {
       dataMetrics$AUCVal[dataMetricRow] <- auc(train_val$target, train_val[[newColName]])
       dataMetrics$AUCDev[dataMetricRow] <- auc(train_dev$target, train_dev[[newColName]])
       dataMetrics$Binning[dataMetricRow] <- "symbin"
-      dataMetrics$BinParam [dataMetricRow] <- settings.symbinResidualThreshold
+      dataMetrics$BinParam [dataMetricRow] <- bestParam*nrow(train_dev)
       dataMetrics$FinalName[dataMetricRow] <- newColName
       
-    } else if (dataMetrics$className[dataMetricRow] == "integer" && dataMetrics$Overlap[dataMetricRow] == 1) { # not sure about this - maybe still need minimum binsize
-      # do symbolic binning with 0 threshold (= recoding)
-      
-      cat("Recode fld:", colName, fill=T)
-      binner <- createSymBin2(train_dev[[colName]], train_dev$target, settings.symbinResidualThreshold)
-      if (settings.doGeneratePlots) {
-        sb.plotOne(binner, train_dev, train_val, test, colName, "target", plotFolder="plots")
-      }
-      print(binner)
-      
-      train_dev[[colName]] <- applySymBin(binner, train_dev[[colName]])
-      train_val[[colName]] <- applySymBin(binner, train_val[[colName]])
-      test[[colName]]      <- applySymBin(binner, test[[colName]])
-      
-      # replace column but change name
-      newColName <- paste(colName, "_recode", sep="")
-      colnames(train_dev) [which(colnames(train_dev) == colName)] <- 
-        colnames(train_val) [which(colnames(train_val) == colName)] <- 
-        colnames(test) [which(colnames(test) == colName)] <- newColName
-      
-      # keep AUC
-      dataMetrics$AUCVal[dataMetricRow] <- auc(train_val$target, train_val[[newColName]])
-      dataMetrics$AUCDev[dataMetricRow] <- auc(train_dev$target, train_dev[[newColName]])
-      dataMetrics$Binning[dataMetricRow] <- "recode"
-      dataMetrics$BinParam [dataMetricRow] <- 0
-      dataMetrics$FinalName[dataMetricRow] <- newColName
-      
-    } else if (dataMetrics$nDistinct[dataMetricRow] > settings.numbinNumBins) { 
+    } else if ((dataMetrics$className[dataMetricRow] == "numeric") ||
+                 (dataMetrics$nDistinct[dataMetricRow] > settings.numbinNumBins)){ 
       # do numeric binning 
-      
       cat("NumBin fld:", colName, fill=T)
-      binner <- createNumBin(train_dev[[colName]],train_val[[colName]],test[[colName]],
-                             train_dev$target,train_val$target,settings.numbinNumBins)
-      if (settings.doGeneratePlots) {
-        plotNumBin(binner, "plots")
-      }
-      print(binner)
       
-      train_dev[[colName]] <- applyNumBin(binner, train_dev[[colName]])
-      train_val[[colName]] <- applyNumBin(binner, train_val[[colName]])
-      test[[colName]] <- applyNumBin(binner, test[[colName]])
+      paramRange <- c(2,4,8,seq(10,90,by=10),seq(100,300,by=50)) # replacing settings.numbinNumBins
+      bestPerf <- 0
+      for (param in paramRange) {
+        binner <- createNumBin(train_dev[[colName]],train_val[[colName]],test[[colName]],
+                               train_dev$target,train_val$target,param)
+        perf <- auc(train_val$target, applyNumBin(binner, train_val[[colName]]))
+        if (perf > bestPerf) {
+          bestPerf <- perf
+          bestBinner <- binner
+          bestParam <- param
+        }
+        cat("Numbin params:",param,perf,bestPerf,bestParam,fill=T)
+      }
+      
+      if (settings.doGeneratePlots) {
+        plotNumBin(bestBinner, "plots")
+      }
+      print(bestBinner)
+      
+      train_dev[[colName]] <- applyNumBin(bestBinner, train_dev[[colName]])
+      train_val[[colName]] <- applyNumBin(bestBinner, train_val[[colName]])
+      test[[colName]] <- applyNumBin(bestBinner, test[[colName]])
       
       # replace column but change name
       newColName <- paste(colName, "_numbin", sep="")
@@ -275,7 +276,7 @@ for (colName in colnames(test)) {
       dataMetrics$AUCVal[dataMetricRow] <- auc(train_val$target, train_val[[newColName]])
       dataMetrics$AUCDev[dataMetricRow] <- auc(train_dev$target, train_dev[[newColName]])
       dataMetrics$Binning[dataMetricRow] <- "numbin"
-      dataMetrics$BinParam [dataMetricRow] <- settings.numbinNumBins
+      dataMetrics$BinParam [dataMetricRow] <- bestParam
       dataMetrics$FinalName[dataMetricRow] <- newColName
     } else {
       # keep AUC
@@ -516,7 +517,7 @@ if (settings.doXGBoost) {
   
   # feature importance
   importance_mx <- xgb.importance(names(train_dev), model=xgbModel)
-  print( xgb.plot.importance(importance_mx[1:20,]) ) 
+  print( xgb.plot.importance(importance_mx[1:50,]) ) 
   
   # predictions
   predictions <- predict(xgbModel, data.matrix(select(train_val, -target)),ntreelimit=xgbModel$bestInd)
