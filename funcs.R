@@ -1,3 +1,14 @@
+# load required packages
+library(data.table)
+require(bit64)
+library(tidyr)
+library(ggplot2) 
+library(scales)
+library(caret)
+library(lubridate)
+library(corrplot)
+library(plyr)
+library(dplyr)
 library(scales)
 library(sm)
 
@@ -6,13 +17,13 @@ library(sm)
 # rest in a residual bin.
 #
 # Result is a dataframe with
-#  binindex = bin index (1:N)
+#  binRank = bin index (1:N)
 #  val = value
 #  cases = number of cases
 #  avgoutcome = average behaviour
 #  freq = number of cases as percentage
 # Sorted by increasing avgoutcome
-createSymBin2 <- function(val, outcome, threshold = 0.001) 
+createSymbin <- function(val, outcome, threshold = 0.001) 
 {
   if (!is.logical(outcome) && !is.integer(outcome)) {
     stop("expects a logical or integer as 2nd argument")
@@ -43,43 +54,43 @@ createSymBin2 <- function(val, outcome, threshold = 0.001)
   result <- rbind(result, c(NA,nRemainingCases,residualOutcome,nRemainingCases/total))
   
   if (nrow(result) > 1) {
-    result$binindex <- rank(result$avgoutcome) #seq(1:nrow(result))
+    result$binRank <- rank(result$avgoutcome) 
+    result$binIndex <- seq(1:nrow(result))
     return(select( result, -t))
   } else {
     setnames(result, c('val','cases','avgoutcome','freq'))
-    result$binindex <- c(1)
+    result$binRank <- c(1)
+    result$binIndex <- c(1)
     return(result)
   }
 }
 
 # Apply sym binning to a vector of values, returning a vector of bin indices
 # Values not in the binning will get the 'residual' bin index
-applySymBinIndex <- function(binning, values) 
+applySymbin.internal <- function(binning, values) 
 {
   if (nrow(binning) == 1) {
-    return (rep(binning$binindex[nrow(binning)], length(values)))  
+    return (rep(binning$binIndex[nrow(binning)], length(values)))  
   } else {
     df <- data.frame(as.character(values), stringsAsFactors = F)
     setnames(df, c('val'))
     r <- left_join(df, binning[seq(1:(nrow(binning)-1)),], by="val")
-    #print(r)
-    return ( ifelse(is.na(r$binindex), binning$binindex[nrow(binning)], r$binindex) )
+    return ( ifelse(is.na(r$binIndex), nrow(binning), r$binIndex) ) # is.na happens for values not in the join
   }
 }
 
 # Apply sym binning to a vector of values, returning a vector of recoded values
 # Values not in the binning will get the 'residual' recoding
-applySymBin <- function(binning, values) 
+applySymbin <- function(binning, values) 
 {
-  if (nrow(binning) == 1) {
-    return (rep(binning$avgoutcome[nrow(binning)], length(values)))  
-  } else {
-    df <- data.frame(as.character(values), stringsAsFactors = F)
-    setnames(df, c('val'))
-    r <- left_join(df, binning[seq(1:(nrow(binning)-1)),], by="val")
-    #print(r)
-    return ( ifelse(is.na(r$avgoutcome), binning$avgoutcome[nrow(binning)], r$avgoutcome) )
-  }
+  return (binning$avgoutcome[applySymbin.internal(binning, values)])
+}
+
+# Apply sym binning to a vector of values, returning a vector of ranks of the outcomes
+# Values not in the binning will get the rank of the 'residual' bin
+applySymbinRank <- function(binning, values) 
+{
+  return (binning$binRank[applySymbin.internal(binning, values)])
 }
 
 # Plot symbolic data analysis for one set of vectors
@@ -88,35 +99,35 @@ sb.plotOne <- function(binning,
                        fieldName, outcomeName,
                        plotFolder = NULL)
 {
-  ds_dev_bins <- applySymBinIndex(binning, ds_dev[[fieldName]])
+  ds_dev_bins <- applySymbin.internal(binning, ds_dev[[fieldName]])
   df_dev <- data.frame( ds_dev_bins, ds_dev[,outcomeName])
-  names(df_dev) <- c('binindex','beh')
+  names(df_dev) <- c('binRank','beh')
   
-  ds_val_bins <- applySymBinIndex(binning, ds_val[[fieldName]])
+  ds_val_bins <- applySymbin.internal(binning, ds_val[[fieldName]])
   df_val <- data.frame( ds_val_bins, ds_val[,outcomeName])
-  names(df_val) <- c('binindex','beh')
+  names(df_val) <- c('binRank','beh')
   
-  ds_tst_bins <- applySymBinIndex(binning, ds_tst[[fieldName]])
+  ds_tst_bins <- applySymbin.internal(binning, ds_tst[[fieldName]])
   df_tst <- data.frame( ds_tst_bins )
-  names(df_tst) <- c('binindex')
+  names(df_tst) <- c('binRank')
   
-  rs_dev <- group_by(df_dev, binindex) %>% dplyr::summarise( dev_f=n()/nrow(df_dev), dev_beh=mean(beh,na.rm=T) )
-  rs_val <- group_by(df_val, binindex) %>% dplyr::summarise( val_f=n()/nrow(df_val), val_beh=mean(beh,na.rm=T) )
-  rs_tst <- group_by(df_tst, binindex) %>% dplyr::summarise( tst_f=n()/nrow(df_tst) )
+  rs_dev <- group_by(df_dev, binRank) %>% dplyr::summarise( dev_f=n()/nrow(df_dev), dev_beh=mean(beh,na.rm=T) )
+  rs_val <- group_by(df_val, binRank) %>% dplyr::summarise( val_f=n()/nrow(df_val), val_beh=mean(beh,na.rm=T) )
+  rs_tst <- group_by(df_tst, binRank) %>% dplyr::summarise( tst_f=n()/nrow(df_tst) )
   
-  df_summarized <- left_join(left_join(left_join(select(binning, binindex, val), 
-                                                 rs_dev, by="binindex"),
-                                       rs_val, by="binindex"),
-                             rs_tst, by="binindex")
+  df_summarized <- left_join(left_join(left_join(select(binning, binRank, val), 
+                                                 rs_dev, by="binRank"),
+                                       rs_val, by="binRank"),
+                             rs_tst, by="binRank")
   
   cat("Summary symbin",fieldName,fill=T)
   print(df_summarized)
   
-  df_summarized <- filter(df_summarized, binindex < 100) ## just for viewing
+  df_summarized <- filter(df_summarized, binRank < 100) ## just for viewing
   
   # Barchart with frequencies
   df_plot1 <- gather(df_summarized, dataset, frequency, dev_f, val_f, tst_f)
-  df_plot1$val <- reorder(as.character(factor(df_plot1$val)),df_plot1$binindex)
+  df_plot1$val <- reorder(as.character(factor(df_plot1$val)),df_plot1$binRank)
   try({
     plot1 <- ggplot(df_plot1, 
                     aes(x=val, y=frequency, fill=dataset))+
@@ -132,7 +143,7 @@ sb.plotOne <- function(binning,
   
   # Linegraph with average outcomes
   df_plot2 <- gather(df_summarized, dataset, outcome, dev_beh, val_beh)
-  df_plot2$val <- reorder(as.character(factor(df_plot2$val)),df_plot2$binindex)
+  df_plot2$val <- reorder(as.character(factor(df_plot2$val)),df_plot2$binRank)
   try({
     plot2 <- ggplot(df_plot2, 
                     aes(x=val, y=outcome, colour=dataset, group=dataset))+
@@ -149,66 +160,50 @@ sb.plotOne <- function(binning,
 }
 
 
-createNumBin <- function(vec_dev, vec_val, vec_tst, beh_dev, beh_val, n)
+# TODO: there is no NA handling here - they're just ignored
+# TODO: allow for extra param with special values passed in
+# TODO: add binRank / binIndex like symbin
+createNumbin <- function(val, outcome, nBins)
 {
-  vec_all <- c(vec_dev, vec_val, vec_tst)
-  ds_min <- min(vec_all, Inf, na.rm=T)
-  ds_max <- max(vec_all, -Inf, na.rm=T)
-  if (length(unique(vec_all)) < n) {
-    intervals <- c(ds_min, sort(unique(vec_all)))
+  ds_min <- min(val, Inf, na.rm=T)
+  ds_max <- max(val, -Inf, na.rm=T)
+  if (length(unique(val)) < nBins) {
+    intervals <- c(ds_min, sort(unique(val)))
   } else {
-    intervals <- unique(c(ds_min, quantile(vec_all, 
-                                           (1:n)/n, na.rm=T, names=F), ds_max))
+    intervals <- unique(c(ds_min, quantile(val, 
+                                           (1:nBins)/nBins, na.rm=T, names=F), ds_max))
   }
   if (length(intervals) == 1) {
     intervals <- rep(intervals[1],2) # make sure there are two rows
   }
-  binning <- data.frame(intervals,"NA",0,0,0,stringsAsFactors=F)
-  names(binning) <- c('boundary','interval','dev_n','val_n','tst_n')
+  binning <- data.frame(intervals,"NA",0,stringsAsFactors=F)
+  names(binning) <- c('boundary','interval','dev_n')
   for (i in 1:(length(intervals)-1)) {
     inclLower <- (i == 1)
     if (inclLower) {
       binning$interval[i] <- paste("[",sprintf("%.2f",binning$boundary[i]),",",sprintf("%.2f",binning$boundary[i+1]),"]",sep="")
       binning$dev_n[i] <- 
-        sum(vec_dev >= binning$boundary[i] & vec_dev <= binning$boundary[i+1],na.rm=T)
-      binning$val_n[i] <- 
-        sum(vec_val >= binning$boundary[i] & vec_val <= binning$boundary[i+1],na.rm=T)
-      binning$tst_n[i] <- 
-        sum(vec_tst >= binning$boundary[i] & vec_tst <= binning$boundary[i+1],na.rm=T)
+        sum(val <= binning$boundary[i+1],na.rm=T)
       binning$dev_beh[i] <- 
-        mean(beh_dev[vec_dev >= binning$boundary[i] & vec_dev <= binning$boundary[i+1]],na.rm=T)
-      binning$val_beh[i] <- 
-        mean(beh_val[vec_val >= binning$boundary[i] & vec_val <= binning$boundary[i+1]],na.rm=T)
+        mean(outcome[val <= binning$boundary[i+1]],na.rm=T)
     } else {    
       binning$interval[i] <- paste("(",sprintf("%.2f",binning$boundary[i]),",",sprintf("%.2f",binning$boundary[i+1]),"]",sep="")
       binning$dev_n[i] <- 
-        sum(vec_dev > binning$boundary[i] & vec_dev <= binning$boundary[i+1],na.rm=T)
-      binning$val_n[i] <- 
-        sum(vec_val > binning$boundary[i] & vec_val <= binning$boundary[i+1],na.rm=T)
-      binning$tst_n[i] <- 
-        sum(vec_tst > binning$boundary[i] & vec_tst <= binning$boundary[i+1],na.rm=T)
+        sum(val > binning$boundary[i] & val <= binning$boundary[i+1],na.rm=T)
       binning$dev_beh[i] <- 
-        mean(beh_dev[vec_dev > binning$boundary[i] & vec_dev <= binning$boundary[i+1]],na.rm=T)
-      binning$val_beh[i] <- 
-        mean(beh_val[vec_val > binning$boundary[i] & vec_val <= binning$boundary[i+1]],na.rm=T)
+        mean(outcome[val > binning$boundary[i] & val <= binning$boundary[i+1]],na.rm=T)
     }
   }
-  binning$dev_n[nrow(binning)] <- sum(is.na(vec_dev))
-  binning$val_n[nrow(binning)] <- sum(is.na(vec_val))
-  binning$tst_n[nrow(binning)] <- sum(is.na(vec_tst))
+  binning$dev_n[nrow(binning)] <- sum(is.na(val))
   binning$dev_f <- binning$dev_n/sum(binning$dev_n)
-  binning$val_f <- binning$val_n/sum(binning$val_n)
-  binning$tst_f <- binning$tst_n/sum(binning$tst_n)
   return(binning)
 }
 
-#b <- numbinner(train_dev$VAR_0288,train_val$VAR_0288,test$VAR_0288,train_dev$target,train_val$target,2)
-
-applyNumBin <- function(b, vec) {
+applyNumbin.internal <- function(b, vec) {
   result <- rep(nrow(b),length(vec))
   for (i in 1:(nrow(b)-1)) {
     if (i == 1) {
-      result[vec >= b$boundary[i] & vec <= b$boundary[i+1]] <- i 
+      result[vec <= b$boundary[i+1]] <- i 
     } else {
       if (i == (nrow(b)-1)) {
         result[vec > b$boundary[i]] <- i 
@@ -217,11 +212,14 @@ applyNumBin <- function(b, vec) {
       }
     }
   }
-  result <- b$dev_beh[result]
   return(result)
 }
 
-plotNumBin <- function(binz, plotFolder=NULL) 
+applyNumbin <- function(b, vec) {
+  return (b$dev_beh[applyNumbin.internal(b, vec)])
+}
+
+plotNumbin <- function(binz, plotFolder=NULL) 
 {
   print(binz)
   # Barchart with frequencies

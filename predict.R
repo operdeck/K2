@@ -37,8 +37,8 @@ settings.doGBM <- F
 settings.doXGBoost <- T
 settings.doScoring <- !settings.useSmallSample # score the test set for the Kaggle LB
 settings.doGeneratePlots <- F # whether to generate plots for every field 
-settings.symbinResidualThreshold <- 0.01
-settings.numbinNumBins <- 100
+settings.threshold.symbin.MinPercentage <- 0.01
+settings.threshold.TreatIntAsNumeric <- 100
 settings.cutoffUnivariateAUC <- 0.51 # predictors with lower AUC will be deselected
 settings.correlationThreshold <- 0.80 # predictors with higher correlation will be deselected
 
@@ -205,28 +205,29 @@ for (colName in colnames(test)) {
       
       cat("SymBin fld:", colName, fill=T)
 
-      paramRange <- c(0.001,0.002,0.005,0.01,0.02, seq(10,40,by=10)/nrow(train_dev)) # instead of settings.symbinResidualThreshold
+      paramRange <- c(0.001,0.002,0.005,0.01,0.02, 10/nrow(train_dev)) # instead of settings.threshold.symbin.MinPercentage
+
       bestPerf <- 0
       for (param in paramRange) {
-        binner <- createSymBin2(train_dev[[colName]], train_dev$target, 
+        binning <- createSymbin(train_dev[[colName]], train_dev$target, 
                                 param)
-        perf <- auc(train_val$target, applySymBin(binner, train_val[[colName]]))
+        perf <- auc(train_val$target, applySymbin(binning, train_val[[colName]]))
         if (perf > bestPerf) {
           bestPerf <- perf
-          bestBinner <- binner
+          bestBinning <- binning
           bestParam <- param
         }
         cat("Symbin params:",param,perf,bestPerf,bestParam,fill=T)
       }
       
       if (settings.doGeneratePlots) {
-        sb.plotOne(bestBinner, train_dev, train_val, test, colName, "target", plotFolder="plots")
+        sb.plotOne(bestBinning, train_dev, train_val, test, colName, "target", plotFolder="plots")
       }
-      print(bestBinner)
+      print(bestBinning)
       
-      train_dev[[colName]] <- applySymBin(bestBinner, train_dev[[colName]])
-      train_val[[colName]] <- applySymBin(bestBinner, train_val[[colName]])
-      test[[colName]]      <- applySymBin(bestBinner, test[[colName]])
+      train_dev[[colName]] <- applySymbin(bestBinning, train_dev[[colName]])
+      train_val[[colName]] <- applySymbin(bestBinning, train_val[[colName]])
+      test[[colName]]      <- applySymbin(bestBinning, test[[colName]])
       
       # replace column but change name
       newColName <- paste(colName, "_symbin", sep="")
@@ -242,32 +243,33 @@ for (colName in colnames(test)) {
       dataMetrics$FinalName[dataMetricRow] <- newColName
       
     } else if ((dataMetrics$className[dataMetricRow] == "numeric") ||
-                 (dataMetrics$nDistinct[dataMetricRow] > settings.numbinNumBins)){ 
-      # do numeric binning 
-      cat("NumBin fld:", colName, fill=T)
+                 (dataMetrics$nDistinct[dataMetricRow] > settings.threshold.TreatIntAsNumeric)){ 
       
-      paramRange <- c(2,4,8,seq(10,90,by=10),seq(100,300,by=50)) # replacing settings.numbinNumBins
+      # do numeric binning 
+      cat("Numbin fld:", colName, fill=T)
+      
+      paramRange <- c(2,4,8,seq(10,90,by=10),seq(100,300,by=50)) 
+      paramRange <- paramRange[ paramRange <= dataMetrics$nDistinct[dataMetricRow] ]
       bestPerf <- 0
       for (param in paramRange) {
-        binner <- createNumBin(train_dev[[colName]],train_val[[colName]],test[[colName]],
-                               train_dev$target,train_val$target,param)
-        perf <- auc(train_val$target, applyNumBin(binner, train_val[[colName]]))
+        binning <- createNumbin(train_dev[[colName]],train_dev$target,param)
+        perf <- auc(train_val$target, applyNumbin(binning, train_val[[colName]]))
         if (perf > bestPerf) {
           bestPerf <- perf
-          bestBinner <- binner
+          bestBinning <- binning
           bestParam <- param
         }
         cat("Numbin params:",param,perf,bestPerf,bestParam,fill=T)
       }
       
       if (settings.doGeneratePlots) {
-        plotNumBin(bestBinner, "plots")
+        plotNumbin(bestBinning, "plots")
       }
-      print(bestBinner)
+      print(bestBinning)
       
-      train_dev[[colName]] <- applyNumBin(bestBinner, train_dev[[colName]])
-      train_val[[colName]] <- applyNumBin(bestBinner, train_val[[colName]])
-      test[[colName]] <- applyNumBin(bestBinner, test[[colName]])
+      train_dev[[colName]] <- applyNumbin(bestBinning, train_dev[[colName]])
+      train_val[[colName]] <- applyNumbin(bestBinning, train_val[[colName]])
+      test[[colName]] <- applyNumbin(bestBinning, test[[colName]])
       
       # replace column but change name
       newColName <- paste(colName, "_numbin", sep="")
@@ -498,8 +500,8 @@ if (settings.doXGBoost) {
   # see https://www.kaggle.com/mrooijer/springleaf-marketing-response/xgboost-run-local/code
   param <- list(  objective           = "binary:logistic", 
                   # booster = "gblinear",
-                  eta                 = 0.01,
-                  max_depth           = 9,  
+                  eta                 = 0.005,
+                  max_depth           = 8,  
                   subsample           = 0.7,
                   colsample_bytree    = 0.5, # column subsampling ratio
                   min_child_weight    = 6,

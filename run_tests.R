@@ -1,5 +1,13 @@
 library('RUnit')
 
+macWD <- "~/Documents/science/kaggle/springleaf/K2"
+winWD <- "D:/usr/science/kaggle/springleaf/K2"
+if (file.exists(macWD)) {
+  setwd(macWD)
+} else {
+  setwd(winWD)
+}
+
 source('funcs.R')
 
 test.suite <- defineTestSuite("example",
