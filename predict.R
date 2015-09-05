@@ -500,9 +500,9 @@ if (settings.doXGBoost) {
   # see https://www.kaggle.com/mrooijer/springleaf-marketing-response/xgboost-run-local/code
   param <- list(  objective           = "binary:logistic", 
                   # booster = "gblinear",
-                  eta                 = 0.005,
-                  max_depth           = 8,  
-                  subsample           = 0.7,
+                  eta                 = 0.008,
+                  max_depth           = 9,  
+                  subsample           = 0.5,
                   colsample_bytree    = 0.5, # column subsampling ratio
                   min_child_weight    = 6,
                   alpha               = 4,
