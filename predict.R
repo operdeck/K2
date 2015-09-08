@@ -30,14 +30,13 @@ epoch <- now()
 gc()
 
 settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
-#settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
+# settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
 
-settings.doCaretTuning <- F # set to T to use caret for finding model tuning parameters, otherwise direct model
-settings.doGBM <- F
-settings.doXGBoost <- T
+settings.doCaretTuning <- T
+settings.doXGBoost <- F
 settings.doScoring <- !settings.useSmallSample # score the test set for the Kaggle LB
 settings.doGeneratePlots <- F # whether to generate plots for every field 
-settings.threshold.symbin.MinPercentage <- 0.01
+settings.threshold.symbin.minsize <- 10 # TODO: add numbin seeting here (minobs)
 settings.threshold.TreatIntAsNumeric <- 100
 settings.cutoffUnivariateAUC <- 0.51 # predictors with lower AUC will be deselected
 settings.correlationThreshold <- 0.80 # predictors with higher correlation will be deselected
@@ -46,6 +45,14 @@ settings.gbm.n.trees <- 300 # 300 for benchmarking, 1000 for real score
 settings.gbm.interaction.depth <- 20 # 30 for real score
 settings.gbm.shrinkage <- 0.02 # TODO need to find best value here 
 settings.gbm.cv.folds <- 3 # often 3 on Mac, 5 on Lenovo
+
+settings.xgb.nrounds <- 100
+settings.xgb.max_depth <- 3
+settings.xgb.eta <- 0.1
+settings.xgb.subsample <- 0.5
+settings.xgb.colsample_bytree <- 0.8
+settings.xgb.nthreads <- 3
+settings.xgb.eval_metric <- "auc"
 
 ###########################
 # Read Data
@@ -196,16 +203,31 @@ dataMetrics$FinalName <- NA
 
 # if all is well, some fields will now not be binned
 
+doTreatAsSymbolic <- function( dataMetrics )
+{
+  treatAsSymbolic <- (dataMetrics$isSymbolic && !dataMetrics$isDate) ||
+    (dataMetrics$className == "integer" && dataMetrics$Overlap > 0.90)  
+  return(treatAsSymbolic)
+}
+
+doTreatAsNumeric <- function( dataMetrics )
+{
+  treatAsNumeric <-  (dataMetrics$className == "numeric") ||
+                        (dataMetrics$nDistinct > settings.threshold.TreatIntAsNumeric)
+  
+  return(treatAsNumeric)
+}
+
 for (colName in colnames(test)) {
   dataMetricRow <- which(rownames(dataMetrics) == colName)
   if (dataMetrics$nDistinct[dataMetricRow] > 2) {
-    if ((dataMetrics$isSymbolic[dataMetricRow] && !dataMetrics$isDate[dataMetricRow]) ||
-      (dataMetrics$className[dataMetricRow] == "integer" && dataMetrics$Overlap[dataMetricRow] == 1)) {
+    if (doTreatAsSymbolic( dataMetrics[dataMetricRow,] )) {
       # do symbolic binning with residuals
       
       cat("SymBin fld:", colName, fill=T)
 
-      paramRange <- c(0.001,0.002,0.005,0.01,0.02, 10/nrow(train_dev)) # instead of settings.threshold.symbin.MinPercentage
+      paramRange <- c(settings.threshold.symbin.minsize/nrow(train_dev)) # no variation now
+      #paramRange <- c(0.001,0.002,0.005,0.01,0.02, 10/nrow(train_dev)) # instead of settings.threshold.symbin.MinPercentage
 
       bestPerf <- 0
       for (param in paramRange) {
@@ -223,7 +245,8 @@ for (colName in colnames(test)) {
       if (settings.doGeneratePlots) {
         sb.plotOne(bestBinning, train_dev, train_val, test, colName, "target", plotFolder="plots")
       }
-      print(bestBinning)
+      print(head(bestBinning))
+      if (nrow(bestBinning) > 6) { print(tail(bestBinning)) }
       
       train_dev[[colName]] <- applySymbin(bestBinning, train_dev[[colName]])
       train_val[[colName]] <- applySymbin(bestBinning, train_val[[colName]])
@@ -242,14 +265,14 @@ for (colName in colnames(test)) {
       dataMetrics$BinParam [dataMetricRow] <- bestParam*nrow(train_dev)
       dataMetrics$FinalName[dataMetricRow] <- newColName
       
-    } else if ((dataMetrics$className[dataMetricRow] == "numeric") ||
-                 (dataMetrics$nDistinct[dataMetricRow] > settings.threshold.TreatIntAsNumeric)){ 
+    } else if (doTreatAsNumeric( dataMetrics[dataMetricRow,] )) { 
       
       # do numeric binning 
       cat("Numbin fld:", colName, fill=T)
       
-      paramRange <- c(2,4,8,seq(10,90,by=10),seq(100,300,by=50)) 
-      paramRange <- paramRange[ paramRange <= dataMetrics$nDistinct[dataMetricRow] ]
+      #paramRange <- c(2,4,8,seq(10,90,by=10),seq(100,300,by=50)) 
+      #paramRange <- paramRange[ paramRange <= dataMetrics$nDistinct[dataMetricRow] ]
+      paramRange <- c(100)
       bestPerf <- 0
       for (param in paramRange) {
         binning <- createNumbin(train_dev[[colName]],train_dev$target,param)
@@ -265,7 +288,8 @@ for (colName in colnames(test)) {
       if (settings.doGeneratePlots) {
         plotNumbin(bestBinning, "plots")
       }
-      print(bestBinning)
+      print(head(bestBinning))
+      if (nrow(bestBinning) > 6) { print(tail(bestBinning)) }
       
       train_dev[[colName]] <- applyNumbin(bestBinning, train_dev[[colName]])
       train_val[[colName]] <- applyNumbin(bestBinning, train_val[[colName]])
@@ -409,10 +433,6 @@ cat('GLM benchmark Val AUC:',
     auc(train_dev$target, predict(logitModel, train_dev)), 
     fill=T )
 
-if (settings.useSmallSample) {
-  stop("STOPPING AFTER GLM")
-}
-
 ###########################
 # Fit model
 ###########################
@@ -426,27 +446,40 @@ if (settings.doCaretTuning) {
   
   fitControl <- trainControl(## 10-fold CV
     method = "repeatedcv",
-    number = 5,
+    number = 3,
     ## repeated ten times
-    repeats = 1,
+    repeats = 2,
     classProbs = TRUE,
-    summaryFunction = twoClassSummary)
+    summaryFunction = twoClassSummary,
+    verboseIter=T)
   
-  gbmGrid <- expand.grid(
-    interaction.depth = seq(10,30,by=10), # splits 
-    n.trees=c(100),             # number of trees; more often better
-    shrinkage=c(0.02,0.01,0.005),           # learning rate parameter; smaller often better
-    n.minobsinnode=c(10))
+  #Stochastic Gradient Boosting  gbm	Dual Use	gbm, plyr	n.trees, interaction.depth, shrinkage, n.minobsinnode
+  #eXtreme Gradient Boosting  xgbLinear	Dual Use	nrounds, lambda, alpha
+  #eXtreme Gradient Boosting	xgbTree	Dual Use	nrounds, max_depth, eta
   
-  modelTime <- system.time(model <- train(target ~ ., data = train_dev, 
-                                          method="gbm",
-                                          tuneGrid=gbmGrid,
-                                          #preProcess = c("knnImpute"),
-                                          metric = "ROC",
-                                          trControl = fitControl,
-                                          # cv.folds=5
+  xgbTreeGrid <- expand.grid(
+    nrounds = 2000,
+    max_depth = 8,
+    eta = c(0.05,0.02))
+
+  xgbLinearGrid <- expand.grid(
+    nrounds = seq(100,200,by=100),
+    lambda = seq(200,400,by=50),
+    alpha = c(10,20))
+  
+  modelTime <- system.time(model <- train(target ~ ., data = train_dev
+                                          ,method="xgbTree"
+                                          ,tuneGrid=xgbTreeGrid
+#                                           ,method="xgbLinear"
+#                                           ,tuneGrid=xgbLinearGrid
+                                          #preProcess = c("knnImpute")
+                                          ,metric = "ROC"
+                                          ,trControl = fitControl
+                                          #,cv.folds=5
                                           # n.cores=2
-                                          verbose= T))
+                                          ,verbose=1
+                                          ,lambda = 250
+                                          ,alpha = 20))
   
   cat("Duration:",modelTime,fill=T)
   cat("Duration:",modelTime[3]/3600,"hrs",fill=T)
@@ -456,39 +489,20 @@ if (settings.doCaretTuning) {
   print( plot(model) )
   
   va <- varImp(model, scale = FALSE) # Caret variable importance
-  print(va)
+#   print(va)
   print( plot(va, top=50) )
   
-  stop("Stopping after caret parameter tuning step")
-  
-} 
+  # get best params from caret
+  print(model[["bestTune"]])
 
-if (settings.doGBM) {
-  modelTime <- system.time(model <- gbm(target ~ ., data = train_dev[1:10000,], 
-                                        distribution = "bernoulli",
-                                        n.trees = settings.gbm.n.trees, 
-                                        interaction.depth = settings.gbm.interaction.depth,
-                                        shrinkage = settings.gbm.shrinkage,
-                                        cv.folds=settings.gbm.cv.folds, 
-                                        # n.cores=2
-                                        verbose= T))
-  cat("Duration:",modelTime,fill=T)
-  cat("Duration:",modelTime[3]/3600,"hrs",fill=T)
-  print(model)
-  
-  best.iter <- gbm.perf(model, method="cv")
-  print(best.iter)
-  print(head( summary(model, n.trees=best.iter), 30 )) # plot all and print top-N predictors
-  #print(pretty.gbm.tree(model, best.iter))
-  
-  predictions <- predict(model, select(train_val, -target), best.iter, type="response")
-  predictions_dev <- predict(model, select(train_dev, -target), best.iter, type="response")
-  
+  # predictions
+  predictions <- predict(model, newdata=select(train_val, -target), type = "prob") [["yes"]]
+  predictions_dev <- predict(model, newdata=select(train_dev, -target), type = "prob")[["yes"]]
   if (settings.doScoring) {
     print("Scoring test set")
-    pr <- predict(model, test, best.iter, type="response")
+    pr <- predict(model, newdata=test, type = "prob")[["yes"]]
   }
-}
+} 
 
 if (settings.doXGBoost) {
   dtrain_dev <- xgb.DMatrix(data.matrix(select(train_dev, -target)), label=train_dev$target)
@@ -496,25 +510,27 @@ if (settings.doXGBoost) {
   print(gc())
   
   watchlist <- list(eval = dtrain_val, train = dtrain_dev)
-  
+    
   # see https://www.kaggle.com/mrooijer/springleaf-marketing-response/xgboost-run-local/code
   param <- list(  objective           = "binary:logistic", 
-                  # booster = "gblinear",
-                  eta                 = 0.008,
-                  max_depth           = 9,  
-                  subsample           = 0.5,
-                  colsample_bytree    = 0.5, # column subsampling ratio
-                  min_child_weight    = 6,
-                  alpha               = 4,
-                  nthreads            = 3,
-                  eval_metric         = "auc"
+                  #booster = "gblinear",
+                  #alpha = 2,
+                  eta                 = settings.xgb.eta,
+                  max_depth           = settings.xgb.max_depth,  
+                  subsample           = settings.xgb.subsample, 
+                  colsample_bytree    = settings.xgb.colsample_bytree,
+#                   min_child_weight    = 10,
+#                   gamma               = 100,
+                  nthreads            = settings.xgb.nthreads,
+                  eval_metric         = settings.xgb.eval_metric
+#                   scale_pos_weight = 1/mean(train_dev$target)
                   # alpha = 0.0001, 
                   # lambda = 1
   )
   
   xgbModel <- xgb.train(params              = param, 
                         data                = dtrain_dev, 
-                        nrounds             = 3000, # best is not always last - not when overfitting
+                        nrounds             = settings.xgb.nrounds,
                         verbose             = 1, 
                         print.every.n       = 10,
                         early.stop.round    = 100,
@@ -525,7 +541,7 @@ if (settings.doXGBoost) {
   
   # feature importance
   importance_mx <- xgb.importance(names(train_dev), model=xgbModel)
-  print( xgb.plot.importance(importance_mx[1:50,]) ) 
+  print( xgb.plot.importance(head(importance_mx,50) )) 
   
   # predictions
   predictions <- predict(xgbModel, data.matrix(select(train_val, -target)),ntreelimit=xgbModel$bestInd)
@@ -544,7 +560,7 @@ cat('GLM benchmark Val AUC:',
     fill=T )
 cat('Val AUC:', auc(train_val$target, predictions), 
     '#predictors:', ncol(test), 
-    'total time:', (now()-epoch)/60, 'minutes',
+    'total time:', difftime(now(),epoch,units='mins'), 'minutes', 
     fill=T )
 cat('Dev AUC:', auc(train_dev$target, predictions_dev), 
     fill=T )

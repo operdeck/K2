@@ -11,6 +11,7 @@ library(plyr)
 library(dplyr)
 library(scales)
 library(sm)
+library(Hmisc)
 
 # Creates a binning object from a vector of values and outcomes, grouping
 # the values with a frequency above the threshold in distinct bins, the
@@ -54,7 +55,7 @@ createSymbin <- function(val, outcome, threshold = 0.001)
   result <- rbind(result, c(NA,nRemainingCases,residualOutcome,nRemainingCases/total))
   
   if (nrow(result) > 1) {
-    result$binRank <- rank(result$avgoutcome) 
+    result$binRank <- rank(result$avgoutcome, ties.method= "first") 
     result$binIndex <- seq(1:nrow(result))
     return(select( result, -t))
   } else {
@@ -111,7 +112,7 @@ sb.plotOne <- function(binning,
   df_tst <- data.frame( ds_tst_bins )
   names(df_tst) <- c('binRank')
   
-  rs_dev <- group_by(df_dev, binRank) %>% dplyr::summarise( dev_f=n()/nrow(df_dev), dev_beh=mean(beh,na.rm=T) )
+  rs_dev <- group_by(df_dev, binRank) %>% dplyr::summarise( dev_f=n()/nrow(df_dev), avgoutcome=mean(beh,na.rm=T) )
   rs_val <- group_by(df_val, binRank) %>% dplyr::summarise( val_f=n()/nrow(df_val), val_beh=mean(beh,na.rm=T) )
   rs_tst <- group_by(df_tst, binRank) %>% dplyr::summarise( tst_f=n()/nrow(df_tst) )
   
@@ -142,7 +143,7 @@ sb.plotOne <- function(binning,
   })
   
   # Linegraph with average outcomes
-  df_plot2 <- gather(df_summarized, dataset, outcome, dev_beh, val_beh)
+  df_plot2 <- gather(df_summarized, dataset, outcome, avgoutcome, val_beh)
   df_plot2$val <- reorder(as.character(factor(df_plot2$val)),df_plot2$binRank)
   try({
     plot2 <- ggplot(df_plot2, 
@@ -161,62 +162,65 @@ sb.plotOne <- function(binning,
 
 
 # TODO: there is no NA handling here - they're just ignored
-# TODO: allow for extra param with special values passed in
-# TODO: add binRank / binIndex like symbin
-createNumbin <- function(val, outcome, nBins)
+# TODO: allow for extra param with special values passed in: add column for 'constants'
+createNumbin <- function(val, outcome, minSize)
 {
-  ds_min <- min(val, Inf, na.rm=T)
-  ds_max <- max(val, -Inf, na.rm=T)
-  if (length(unique(val)) < nBins) {
-    intervals <- c(ds_min, sort(unique(val)))
-  } else {
-    intervals <- unique(c(ds_min, quantile(val, 
-                                           (1:nBins)/nBins, na.rm=T, names=F), ds_max))
-  }
-  if (length(intervals) == 1) {
-    intervals <- rep(intervals[1],2) # make sure there are two rows
-  }
-  binning <- data.frame(intervals,"NA",0,stringsAsFactors=F)
-  names(binning) <- c('boundary','interval','dev_n')
-  for (i in 1:(length(intervals)-1)) {
-    inclLower <- (i == 1)
-    if (inclLower) {
-      binning$interval[i] <- paste("[",sprintf("%.2f",binning$boundary[i]),",",sprintf("%.2f",binning$boundary[i+1]),"]",sep="")
-      binning$dev_n[i] <- 
-        sum(val <= binning$boundary[i+1],na.rm=T)
-      binning$dev_beh[i] <- 
-        mean(outcome[val <= binning$boundary[i+1]],na.rm=T)
-    } else {    
-      binning$interval[i] <- paste("(",sprintf("%.2f",binning$boundary[i]),",",sprintf("%.2f",binning$boundary[i+1]),"]",sep="")
-      binning$dev_n[i] <- 
-        sum(val > binning$boundary[i] & val <= binning$boundary[i+1],na.rm=T)
-      binning$dev_beh[i] <- 
-        mean(outcome[val > binning$boundary[i] & val <= binning$boundary[i+1]],na.rm=T)
+  boundaries <- cut2(val, m=minSize, onlycuts=T)
+  binning <- data.frame(boundaries,"TBD",0,stringsAsFactors=F)
+  names(binning) <- c('boundary','interval','cases')
+
+  for (i in 1:(length(boundaries)-1)) {
+    if (i == 1) {
+      binning$cases[i] <- 
+        sum(val < binning$boundary[i+1],na.rm=T)
+      binning$avgoutcome[i] <- 
+        mean(outcome[val < binning$boundary[i+1]],na.rm=T)
+    } else if (i == (length(boundaries)-1)) {
+      binning$cases[i] <- 
+        sum(val >= binning$boundary[i],na.rm=T)
+      binning$avgoutcome[i] <- 
+        mean(outcome[val >= binning$boundary[i]],na.rm=T)
+    } else {
+      binning$cases[i] <- 
+        sum(val >= binning$boundary[i] & val < binning$boundary[i+1],na.rm=T)
+      binning$avgoutcome[i] <- 
+        mean(outcome[val >= binning$boundary[i] & val < binning$boundary[i+1]],na.rm=T)
     }
   }
-  binning$dev_n[nrow(binning)] <- sum(is.na(val))
-  binning$dev_f <- binning$dev_n/sum(binning$dev_n)
+
+  # set interval names
+  for (i in 1:(nrow(binning)-1)) {
+    if (i == 1) {
+      binning$interval[i] <- paste("<",sprintf("%.2f",binning$boundary[i+1]),sep="")
+    } else if (i == (nrow(binning)-1)) {
+      binning$interval[i] <- paste(">=",sprintf("%.2f",binning$boundary[i]),sep="")
+    } else {
+      binning$interval[i] <- paste("[",sprintf("%.2f",binning$boundary[i]),",",sprintf("%.2f",binning$boundary[i+1]),")",sep="")
+    }
+  }
+  
+  # set extra columns
+  binning$interval[nrow(binning)] <- "NA"
+  binning$cases[nrow(binning)] <- sum(is.na(val))
+  binning$avgoutcome[nrow(binning)] <- ifelse(binning$cases[nrow(binning)] == 0, 
+                                              mean(outcome, na.rm=TRUE),
+                                              mean(outcome[is.na(val)],na.rm=T))
+   
+  binning$freq <- binning$cases/sum(binning$cases)
+  binning$binRank <- rank(binning$avgoutcome, ties.method= "first")
+  binning$binIndex <- 1:nrow(binning)
   return(binning)
 }
 
 applyNumbin.internal <- function(b, vec) {
-  result <- rep(nrow(b),length(vec))
-  for (i in 1:(nrow(b)-1)) {
-    if (i == 1) {
-      result[vec <= b$boundary[i+1]] <- i 
-    } else {
-      if (i == (nrow(b)-1)) {
-        result[vec > b$boundary[i]] <- i 
-      } else {
-        result[vec > b$boundary[i] & vec <= b$boundary[i+1]] <- i 
-      }
-    }
-  }
+  result <- findInterval(vec, b$boundary, all.inside=T)
+  result[ is.na(vec) ] <- nrow(b) # TODO would do similar for 'special' values
   return(result)
 }
 
 applyNumbin <- function(b, vec) {
-  return (b$dev_beh[applyNumbin.internal(b, vec)])
+  return (b$avgoutcome[applyNumbin.internal(b, vec)])
+#   return (b$binRank[applyNumbin.internal(b, vec)])
 }
 
 plotNumbin <- function(binz, plotFolder=NULL) 
@@ -239,7 +243,7 @@ plotNumbin <- function(binz, plotFolder=NULL)
   })
   
   # Linegraph with average outcomes
-  df_plot2 <- gather(binz, dataset, outcome, dev_beh, val_beh)
+  df_plot2 <- gather(binz, dataset, outcome, avgoutcome, val_beh)
   try({
     plot2 <- ggplot(df_plot2, 
                     aes(x=interval, y=outcome, colour=dataset, group=dataset))+
