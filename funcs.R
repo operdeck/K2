@@ -18,7 +18,7 @@ library(Hmisc)
 # rest in a residual bin.
 #
 # Result is a dataframe with
-#  binRank = bin index (1:N)
+#  binRank = index ranked according to average behaviour
 #  val = value
 #  cases = number of cases
 #  avgoutcome = average behaviour
@@ -32,38 +32,47 @@ createSymbin <- function(val, outcome, threshold = 0.001)
   df <- data.frame(val, outcome)
   setnames(df, c('val','outcome'))
   total <- length(outcome)
+  
   # summarize frequency by value with average outcome
   g <- group_by(df, val) %>% 
-    dplyr::summarise(cases = n(), avgoutcome = mean(outcome), freq = cases/total, t = freq>=threshold) %>% 
+    dplyr::summarise(cases = n(), 
+                     avgoutcome = mean(outcome,na.rm=T), 
+                     freq = cases/total, 
+                     isAboveThreshold = freq>=threshold) %>% 
     arrange(avgoutcome)
-  # NA/Missing can occur in the dataset - consider those like residuals
-  if (any(is.na(g$val))) {
-    g$t[is.na(g$val)]=FALSE
-  }
   g$val <- as.character(g$val)
-  # select only values that have frequency above threshold
-  result <- filter(g, t)
-  # calculate outcome for all other values, or if there are none, the overall average
-  nRemainingCases <- total - sum(result$cases)
-  if (nRemainingCases > 0) {
-    residualOutcome <- # TODO not always correct! Avg for residual or overal, when??
-      sum( (filter(g, !t) %>% mutate( sumavgoutcome = avgoutcome*cases ))$sumavgoutcome ) / nRemainingCases
-  } else {
-    residualOutcome <- mean(outcome, na.rm=TRUE)
-  }
-  # bind a 'residual' row for values with frequency below threshold
-  result <- rbind(result, c(NA,nRemainingCases,residualOutcome,nRemainingCases/total))
+#   print(g)
+  result <- select(filter(g[!is.na(g[,1])], isAboveThreshold), -isAboveThreshold)
+#   print(result)
   
-  if (nrow(result) > 1) {
-    result$binRank <- rank(result$avgoutcome, ties.method= "first") 
-    result$binIndex <- seq(1:nrow(result))
-    return(select( result, -t))
+  # define bin for residual cases
+  residualCases <- sum(g$cases[ !g$isAboveThreshold & !is.na(g[[1]]) ])
+  if (residualCases > 0) {
+    result <- rbind(result, c(NA, 
+                    residualCases, 
+                    sum( (filter(g, !isAboveThreshold, !is.na(val)) %>% 
+                            mutate( sumavgoutcome = avgoutcome*cases ))$sumavgoutcome ) / residualCases,
+                    residualCases/total))
   } else {
-    setnames(result, c('val','cases','avgoutcome','freq'))
-    result$binRank <- c(1)
-    result$binIndex <- c(1)
-    return(result)
+    result <- rbind(result, c(NA, 0, NA, 0.0))
   }
+  if (nrow(result) == 1) {
+    names(result) <- c('val','cases','avgoutcome','freq')
+  }
+  result$val[nrow(result)] <- 'RESIDUAL'
+
+  # define bin for NAs
+  missingCases <- sum(g$cases[ is.na(g[,1]) ])
+  if (missingCases > 0) {
+    result <- rbind(result, c(NA, missingCases, mean(outcome[is.na(val)],na.rm=T),
+                              missingCases/total))
+  } else {
+    result <- rbind(result, c(NA, 0, NA, 0.0))
+  }
+  result$val[nrow(result)] <- 'MISSING'
+  
+  result$binIndex <- seq(1:nrow(result))
+  return(result)
 }
 
 # Apply sym binning to a vector of values, returning a vector of bin indices
@@ -71,12 +80,17 @@ createSymbin <- function(val, outcome, threshold = 0.001)
 applySymbin.internal <- function(binning, values) 
 {
   if (nrow(binning) == 1) {
-    return (rep(binning$binIndex[nrow(binning)], length(values)))  
+    return (rep(1, length(values)))  
   } else {
     df <- data.frame(as.character(values), stringsAsFactors = F)
     setnames(df, c('val'))
-    r <- left_join(df, binning[seq(1:(nrow(binning)-1)),], by="val")
-    return ( ifelse(is.na(r$binIndex), nrow(binning), r$binIndex) ) # is.na happens for values not in the join
+    r <- left_join(df, binning[seq(1:(nrow(binning)-2)),], by="val")$binIndex
+    
+    r[is.na(values)] <- nrow(binning)
+    # if there's still NAs, these are because the values are residuals
+    r[is.na(r)] <- nrow(binning)-1
+    
+    return(r)
   }
 }
 
@@ -160,12 +174,10 @@ sb.plotOne <- function(binning,
   return (df_summarized)
 }
 
-
-# TODO: there is no NA handling here - they're just ignored
 # TODO: allow for extra param with special values passed in: add column for 'constants'
 createNumbin <- function(val, outcome, minSize)
 {
-  boundaries <- cut2(val, m=minSize, onlycuts=T)
+  suppressWarnings(boundaries <- cut2(val, m=minSize, onlycuts=T)) # moans about Inf otherwise
   binning <- data.frame(boundaries,"TBD",0,stringsAsFactors=F)
   names(binning) <- c('boundary','interval','cases')
 
@@ -203,7 +215,7 @@ createNumbin <- function(val, outcome, minSize)
   binning$interval[nrow(binning)] <- "NA"
   binning$cases[nrow(binning)] <- sum(is.na(val))
   binning$avgoutcome[nrow(binning)] <- ifelse(binning$cases[nrow(binning)] == 0, 
-                                              mean(outcome, na.rm=TRUE),
+                                              NA, # keep NA if train set does not have NA's
                                               mean(outcome[is.na(val)],na.rm=T))
    
   binning$freq <- binning$cases/sum(binning$cases)

@@ -10,6 +10,23 @@ if (file.exists(macWD)) {
 
 source('funcs.R')
 
+# works for scalars as well as vectors
+checkDeltaEquals <- function(expected, actual, delta=1e-5)
+{
+  ok <- checkEquals( expected[is.na(expected)], actual[is.na(actual)])
+  if (ok) {
+    ok <- all ( abs(expected[!is.na(expected)] - actual[!is.na(actual)]) < delta )
+  }
+  
+  if (!ok) {
+    cat("Expected: ", expected, class(expected), fill=T)
+    cat("Actual  : ", actual, class(actual), fill=T)
+    print(abs(expected-actual))
+    print(abs(expected-actual) < delta )
+  }
+  checkTrue(ok) 
+}
+
 test.suite <- defineTestSuite("example",
                               dirs = file.path("tests"),
                               testFileRegexp = '^test_.*\\.R')

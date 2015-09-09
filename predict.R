@@ -448,7 +448,7 @@ if (settings.doCaretTuning) {
     method = "repeatedcv",
     number = 3,
     ## repeated ten times
-    repeats = 2,
+    repeats = 1,
     classProbs = TRUE,
     summaryFunction = twoClassSummary,
     verboseIter=T)
@@ -458,7 +458,7 @@ if (settings.doCaretTuning) {
   #eXtreme Gradient Boosting	xgbTree	Dual Use	nrounds, max_depth, eta
   
   xgbTreeGrid <- expand.grid(
-    nrounds = 2000,
+    nrounds = 100, # 2000
     max_depth = 8,
     eta = c(0.05,0.02))
 
