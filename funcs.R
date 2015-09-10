@@ -13,65 +13,71 @@ library(scales)
 library(sm)
 library(Hmisc)
 
-# Creates a binning object from a vector of values and outcomes, grouping
-# the values with a frequency above the threshold in distinct bins, the
-# rest in a residual bin.
+# Create a binning object for symbolic binning of a vector of values. Values
+# with a frequency below a threshold will be represented by a 'residual' bin.
+# There is a seperate bin for missing values.
 #
-# Result is a dataframe with
-#  binRank = index ranked according to average behaviour
-#  val = value
-#  cases = number of cases
-#  avgoutcome = average behaviour
-#  freq = number of cases as percentage
-# Sorted by increasing avgoutcome
+# Example output:
+# 
+#        val cases avgoutcome      freq binIndex binRank
+# 1        B     2        0.0 0.2857143        1       1
+# 2        A     2        1.0 0.2857143        2       3
+# 3 RESIDUAL     1        1.0 0.1428571        3       4
+# 4  MISSING     2        0.5 0.2857143        4       2
+# 
 createSymbin <- function(val, outcome, threshold = 0.001) 
 {
   if (!is.logical(outcome) && !is.integer(outcome)) {
     stop("expects a logical or integer as 2nd argument")
   }
-  df <- data.frame(val, outcome)
-  setnames(df, c('val','outcome'))
   total <- length(outcome)
   
-  # summarize frequency by value with average outcome
-  g <- group_by(df, val) %>% 
-    dplyr::summarise(cases = n(), 
-                     avgoutcome = mean(outcome,na.rm=T), 
-                     freq = cases/total, 
-                     isAboveThreshold = freq>=threshold) %>% 
-    arrange(avgoutcome)
-  g$val <- as.character(g$val)
-#   print(g)
-  result <- select(filter(g[!is.na(g[,1])], isAboveThreshold), -isAboveThreshold)
-#   print(result)
+  # Create one bin for 'NA' values
+  isNA <- is.na(val)
+  result <- data.frame(c('MISSING'),sum(isNA),mean(outcome[isNA],na.rm=T))
+  setnames(result, c('val', 'cases', 'avgoutcome'))
+  result$freq <- result$cases/total
   
-  # define bin for residual cases
-  residualCases <- sum(g$cases[ !g$isAboveThreshold & !is.na(g[[1]]) ])
-  if (residualCases > 0) {
-    result <- rbind(result, c(NA, 
-                    residualCases, 
-                    sum( (filter(g, !isAboveThreshold, !is.na(val)) %>% 
-                            mutate( sumavgoutcome = avgoutcome*cases ))$sumavgoutcome ) / residualCases,
-                    residualCases/total))
-  } else {
-    result <- rbind(result, c(NA, 0, NA, 0.0))
-  }
-  if (nrow(result) == 1) {
-    names(result) <- c('val','cases','avgoutcome','freq')
-  }
-  result$val[nrow(result)] <- 'RESIDUAL'
+  if (!all(isNA)) {
+    # Create bins for all other values
+    df <- data.frame(val[!isNA], outcome[!isNA]) 
+    setnames(df, c('val','outcome'))
+    g <- group_by(df, val) %>% 
+      dplyr::summarise(cases = n(), 
+                       avgoutcome = mean(outcome,na.rm=T), 
+                       freq = cases/total,
+                       isAboveThreshold = freq>=threshold)
 
-  # define bin for NAs
-  missingCases <- sum(g$cases[ is.na(g[,1]) ])
-  if (missingCases > 0) {
-    result <- rbind(result, c(NA, missingCases, mean(outcome[is.na(val)],na.rm=T),
-                              missingCases/total))
+    if (any(g$isAboveThreshold)) {
+      g$val <- as.character(g$val)
+      # Create single bin for residual group and concatenate the bins
+      result <- rbind(filter(g, isAboveThreshold) %>% select(-isAboveThreshold), 
+                      c(NA,NA,NA,NA), result)
+      residual_cases <- sum(g$cases[!g$isAboveThreshold])
+      result$avgoutcome[nrow(result)-1] <- 
+        sum(g$avgoutcome[!g$isAboveThreshold] * g$cases[!g$isAboveThreshold]) / residual_cases
+    } else {
+      # Special care if all are residual
+      result <- rbind(result, result) # first one will be overwritten
+      result$val <- as.character(result$val)
+      residual_cases <- sum(g$cases)
+      result$avgoutcome[nrow(result)-1] <- sum(g$avgoutcome*g$cases)/residual_cases
+    }
   } else {
-    result <- rbind(result, c(NA, 0, NA, 0.0))
-  }
-  result$val[nrow(result)] <- 'MISSING'
+    # Special care if all values are missing
+    result <- rbind(result, result) # first one will be overwritten
+    result$val <- as.character(result$val)
+    residual_cases <- 0
+    result$avgoutcome[nrow(result)-1] <- NA
+  } 
+  result$val[nrow(result)-1] <- 'RESIDUAL'
+  result$cases[nrow(result)-1] <- residual_cases
+  result$freq[nrow(result)-1] <- residual_cases/total
+  result$avgoutcome[is.na(result$avgoutcome)] <- NA # get rid of NaN, replace by NA
   
-  result$binIndex <- seq(1:nrow(result))
+  result$binIndex <- 1:nrow(result)
+  result$binRank <- rank(result$avgoutcome, ties.method="first")
+  
   return(result)
 }
 
@@ -174,53 +180,34 @@ sb.plotOne <- function(binning,
   return (df_summarized)
 }
 
+# Create equi-weight numeric binning. The 'boundary' is the inclusive lower
+# bound of the interval. Returns a dataframe like this:
+#
+#   boundary cases avgoutcome freq binIndex binRank   Interpretation
+# 1        6     2  0.5000000  0.2        1       1    < 8
+# 2        8     3  0.6666667  0.3        2       3    [8, 10>
+# 3       10     5  0.6000000  0.5        3       2    >= 10
+# 4       12     0        NaN  0.0        4       4    Missing values
+
 # TODO: allow for extra param with special values passed in: add column for 'constants'
-createNumbin <- function(val, outcome, minSize)
+createNumbin <- function(val, outcome, minSize=0)
 {
   suppressWarnings(boundaries <- cut2(val, m=minSize, onlycuts=T)) # moans about Inf otherwise
-  binning <- data.frame(boundaries,"TBD",0,stringsAsFactors=F)
-  names(binning) <- c('boundary','interval','cases')
+  binning <- data.frame(boundaries,stringsAsFactors=F)
+  names(binning) <- c('boundary')
 
-  for (i in 1:(length(boundaries)-1)) {
-    if (i == 1) {
-      binning$cases[i] <- 
-        sum(val < binning$boundary[i+1],na.rm=T)
-      binning$avgoutcome[i] <- 
-        mean(outcome[val < binning$boundary[i+1]],na.rm=T)
-    } else if (i == (length(boundaries)-1)) {
-      binning$cases[i] <- 
-        sum(val >= binning$boundary[i],na.rm=T)
-      binning$avgoutcome[i] <- 
-        mean(outcome[val >= binning$boundary[i]],na.rm=T)
-    } else {
-      binning$cases[i] <- 
-        sum(val >= binning$boundary[i] & val < binning$boundary[i+1],na.rm=T)
-      binning$avgoutcome[i] <- 
-        mean(outcome[val >= binning$boundary[i] & val < binning$boundary[i+1]],na.rm=T)
-    }
+  valBinIndex <- applyNumbin.internal(binning, val)
+  for (i in 1:nrow(binning)) {
+    binning$cases[i] <- sum(valBinIndex == i)
+    binning$avgoutcome[i] <- mean(outcome[valBinIndex == i],na.rm=T)
   }
 
-  # set interval names
-  for (i in 1:(nrow(binning)-1)) {
-    if (i == 1) {
-      binning$interval[i] <- paste("<",sprintf("%.2f",binning$boundary[i+1]),sep="")
-    } else if (i == (nrow(binning)-1)) {
-      binning$interval[i] <- paste(">=",sprintf("%.2f",binning$boundary[i]),sep="")
-    } else {
-      binning$interval[i] <- paste("[",sprintf("%.2f",binning$boundary[i]),",",sprintf("%.2f",binning$boundary[i+1]),")",sep="")
-    }
-  }
+  binning$avgoutcome[is.na(binning$avgoutcome)] <- NA # get rid of NaN, replace by NA
   
   # set extra columns
-  binning$interval[nrow(binning)] <- "NA"
-  binning$cases[nrow(binning)] <- sum(is.na(val))
-  binning$avgoutcome[nrow(binning)] <- ifelse(binning$cases[nrow(binning)] == 0, 
-                                              NA, # keep NA if train set does not have NA's
-                                              mean(outcome[is.na(val)],na.rm=T))
-   
   binning$freq <- binning$cases/sum(binning$cases)
-  binning$binRank <- rank(binning$avgoutcome, ties.method= "first")
   binning$binIndex <- 1:nrow(binning)
+  binning$binRank <- rank(binning$avgoutcome, ties.method= "first")
   return(binning)
 }
 
@@ -317,16 +304,19 @@ dataAnalysisOne <- function(dfDev, dfVal, dfTest, fldName,
   dataMetrics$className <- lapply(dsFull,class)
   dataMetrics$isSymbolic <- dataMetrics$className %in% c("factor", "character")
   dataMetrics$isNumeric <- dataMetrics$className %in% c("integer", "numeric", "logical")
-  dataMetrics$nDistinct <- dataMetrics$percentUnique * nrow(dsFull) / 100
+  dataMetrics$nDistinct <- lapply(dsFull, function(col) { return (length(unique(col))) })
+  # instead of dataMetrics$percentUnique * nrow(dsFull) / 100, to account for NAs as well
   dataMetrics$nNA <- sapply(dsFull, function(vec) { return (sum(is.na(vec))) })
   symbolicFldNames <- rownames(dataMetrics) [dataMetrics$isSymbolic]
+  
   if (length(symbolicFldNames) > 0) {
-    dataMetrics$isDate <- rownames(dataMetrics) %in% symbolicFldNames[ sapply(symbolicFldNames, function(colName) { isDate(dsFull[[colName]]) } ) ]
-    dataMetrics$isBoolean <- rownames(dataMetrics) %in% symbolicFldNames[ sapply(symbolicFldNames, function(colName) { isBoolean(dsFull[[colName]]) } ) ]
+    dataMetrics$isDate <- rownames(dataMetrics) %in% symbolicFldNames[ sapply(symbolicFldNames, function(colName) { isDate(na.omit(dsFull[[colName]])) } ) ]
+    dataMetrics$isBoolean <- rownames(dataMetrics) %in% symbolicFldNames[ sapply(symbolicFldNames, function(colName) { isBoolean(na.omit(dsFull[[colName]])) } ) ]
   } else {
     dataMetrics$isDate <- F
     dataMetrics$isBoolean <- F
-  }  
+  }    
+  
   # Get AUC estimates for all predictors
   dataMetrics$Overlap <- NA
   dataMetrics$ksTest <- NA

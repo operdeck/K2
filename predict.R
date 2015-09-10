@@ -12,6 +12,7 @@ library(corrplot)
 library(plyr)
 library(dplyr)
 library(pROC)
+library(RANN)
 require(Ckmeans.1d.dp) # for XGBoost plot
 
 macWD <- "~/Documents/science/kaggle/springleaf/K2"
@@ -29,8 +30,8 @@ Sys.setlocale("LC_TIME", "C")
 epoch <- now()
 gc()
 
-settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
-# settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
+# settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
+settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
 
 settings.doCaretTuning <- T
 settings.doXGBoost <- F
@@ -82,6 +83,15 @@ for (col in 1:ncol(test)) {
 
 testIDs <- test$ID
 test$ID <- NULL
+
+# Quickly replace '-1' and '' by NA in symbolic fields - should not influence binning but will
+# influence NA row count below
+for (colName in colnames(train)[which(sapply(train, function(col) { return (!is.numeric(col)) } ))]) {
+#   print(createSymbin(train[[colName]],train$target))
+  train[[colName]][train[[colName]] == "-1" | train[[colName]] == ""] <- NA
+  test[[colName]][test[[colName]] == "-1" | test[[colName]] == ""] <- NA
+  #   print(createSymbin(train[[colName]],train$target))
+}
 
 # Special extra fields - before doing any further processing
 # Add variable with nr of missing values per row. Make double to ensure numeric treatment.
@@ -155,30 +165,32 @@ processDateFlds <- function(ds, colNames) {
 dateFldNames <- rownames(dataMetrics) [dataMetrics$isDate]
 cat("Date fields: ", dateFldNames, " (", length(dateFldNames), ")", fill=T)
 
-train_dev <- processDateFlds(train_dev, dateFldNames)
-train_val <- processDateFlds(train_val, dateFldNames)
-test <- processDateFlds(test, dateFldNames)
-
-# Create combinations of all possible date pairs. Perhaps some date differences are a good predictor.
-combineDates <- function(ds, fldNames) {
-  if (length(fldNames) >= 2) {
-    first <- fldNames[1]
-    rest <- fldNames[2:length(fldNames)]
-    
-    # add new column side by side with old one (new name)
-    for (second in rest) {
-      combinedName <- paste(first, second, sep="_")
-      cat("Combine dates: ", combinedName, fill=T)
-      ds[[combinedName]] <- ds[[second]] - ds[[first]]
+if (length(dateFldNames) > 0) {
+  train_dev <- processDateFlds(train_dev, dateFldNames)
+  train_val <- processDateFlds(train_val, dateFldNames)
+  test <- processDateFlds(test, dateFldNames)
+  
+  # Create combinations of all possible date pairs. Perhaps some date differences are a good predictor.
+  combineDates <- function(ds, fldNames) {
+    if (length(fldNames) >= 2) {
+      first <- fldNames[1]
+      rest <- fldNames[2:length(fldNames)]
+      
+      # add new column side by side with old one (new name)
+      for (second in rest) {
+        combinedName <- paste(first, second, sep="_")
+        cat("Combine dates: ", combinedName, fill=T)
+        ds[[combinedName]] <- ds[[second]] - ds[[first]]
+      }
+      return(combineDates(ds, rest))
+    } else {
+      return(ds)
     }
-    return(combineDates(ds, rest))
-  } else {
-    return(ds)
   }
+  train_dev <- combineDates(train_dev, paste( dateFldNames, '_asdate', sep=""))
+  train_val <- combineDates(train_val, paste( dateFldNames, '_asdate', sep=""))
+  test <- combineDates(test, paste( dateFldNames, '_asdate', sep=""))
 }
-train_dev <- combineDates(train_dev, paste( dateFldNames, '_asdate', sep=""))
-train_val <- combineDates(train_val, paste( dateFldNames, '_asdate', sep=""))
-test <- combineDates(test, paste( dateFldNames, '_asdate', sep=""))
 
 # Add newly engineered fields to the data metrics overview
 newFields <- setdiff(setdiff(colnames(train_dev), rownames(dataMetrics)),"target")
@@ -307,7 +319,19 @@ for (colName in colnames(test)) {
       dataMetrics$Binning[dataMetricRow] <- "numbin"
       dataMetrics$BinParam [dataMetricRow] <- bestParam
       dataMetrics$FinalName[dataMetricRow] <- newColName
-    } else {
+    } else { # not binned numeric
+      
+      # Replace NAs by column mean (binned columns will have 'no' NAs ... not really true)
+      # ??? not sure
+#       if (any(is.na(aCol))) {
+#         m <- colMeans(aCol,  na.rm = TRUE)
+#         if (verbose) {
+#           cat("   imputing", colnames(ds) [colNo], sum(!complete.cases(aCol)),"NAs with mean", m, fill=TRUE)
+#         }
+#         ds[!complete.cases(aCol), colNo] <- m
+#       }
+      
+      
       # keep AUC
       dataMetrics$AUCVal[dataMetricRow] <- auc(train_val$target, train_val[[colName]])
       dataMetrics$AUCDev[dataMetricRow] <- auc(train_dev$target, train_dev[[colName]])
@@ -348,9 +372,9 @@ test      <- test[,!(names(test) %in% removedUnivariate)]
 cat("Remaining after univariate selection:", length(colnames(train_dev)), fill=T)
 
 # Brute force NA imputation - not sure. Maybe not needed, and knn would be beter anyhow.
-train_dev <- imputeNAs(train_dev)
-train_val <- imputeNAs(train_val)
-test <- imputeNAs(test)
+# train_dev <- imputeNAs(train_dev)
+# train_val <- imputeNAs(train_val)
+# test <- imputeNAs(test)
 
 ###########################
 # Correlations
@@ -386,10 +410,15 @@ for (dropRow in 1:nrow(corrMetrics)) {
   }
 }
 
-linearCombos <- findLinearCombos(as.matrix(train_dev))
-removeLinear <- names(train_dev)[ linearCombos[["remove"]]]
-
 cat("Removing", length(highlyCorrelatedVars), "highly correlated variables", fill=T)
+
+train_dev_noNAs <- train_dev[, as.vector(which( sapply(train_dev, 
+                                                       function(col) { 
+                                                         return(is.numeric(col) & !any(is.na(col))) 
+                                                         }) ))]
+linearCombos <- findLinearCombos(as.matrix(train_dev_noNAs))
+removeLinear <- names(train_dev_noNAs)[ linearCombos[["remove"]]]
+
 cat("Removing", length(removeLinear), "linear combinations", fill=T)
 
 highlyCorrelatedVars <- c(highlyCorrelatedVars, removeLinear)
@@ -402,7 +431,7 @@ if (length(highlyCorrelatedVars) > 0) {
   #trainCor <- cor(select(imputeNAs(train_dev), -IsClick))
   #corrplot(trainCor, method="circle", type="upper", order = "hclust", addrect = 3)
 } else {
-  print("No highly correlated variables")
+  print("No highly correlated or linear variables")
 }
 
 # Dump the data here. Taking the col names from our analysis but using the original data.
@@ -472,7 +501,7 @@ if (settings.doCaretTuning) {
                                           ,tuneGrid=xgbTreeGrid
 #                                           ,method="xgbLinear"
 #                                           ,tuneGrid=xgbLinearGrid
-                                          #preProcess = c("knnImpute")
+                                          ,preProcess = c("knnImpute")
                                           ,metric = "ROC"
                                           ,trControl = fitControl
                                           #,cv.folds=5
@@ -496,11 +525,11 @@ if (settings.doCaretTuning) {
   print(model[["bestTune"]])
 
   # predictions
-  predictions <- predict(model, newdata=select(train_val, -target), type = "prob") [["yes"]]
-  predictions_dev <- predict(model, newdata=select(train_dev, -target), type = "prob")[["yes"]]
+  predictions <- predict(model, newdata=select(train_val, -target), type = "prob", na.action="na.pass") [["yes"]]
+  predictions_dev <- predict(model, newdata=select(train_dev, -target), type = "prob", na.action="na.pass")[["yes"]]
   if (settings.doScoring) {
     print("Scoring test set")
-    pr <- predict(model, newdata=test, type = "prob")[["yes"]]
+    pr <- predict(model, newdata=test, type = "prob", na.action="na.pass")[["yes"]]
   }
 } 
 
@@ -558,6 +587,7 @@ cat('GLM benchmark Val AUC:',
     'Dev AUC:',
     auc(train_dev$target, predict(logitModel, train_dev)), 
     fill=T )
+
 cat('Val AUC:', auc(train_val$target, predictions), 
     '#predictors:', ncol(test), 
     'total time:', difftime(now(),epoch,units='mins'), 'minutes', 

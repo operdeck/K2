@@ -13,8 +13,11 @@ source('funcs.R')
 # works for scalars as well as vectors
 checkDeltaEquals <- function(expected, actual, delta=1e-5)
 {
-  ok <- checkEquals( expected[is.na(expected)], actual[is.na(actual)])
+  ok <- sum(is.na(expected)) == sum(is.na(actual))
   if (ok) {
+    ok <- all(is.na(expected) == is.na(actual))
+  }
+  if (!all(is.na(expected))) {
     ok <- all ( abs(expected[!is.na(expected)] - actual[!is.na(actual)]) < delta )
   }
   
