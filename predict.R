@@ -30,8 +30,8 @@ Sys.setlocale("LC_TIME", "C")
 epoch <- now()
 gc()
 
-# settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
-settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
+settings.useSmallSample <- F # set to true to quickly test changes on a subset of the training data
+# settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
 
 settings.doCaretTuning <- T
 settings.doXGBoost <- F
@@ -487,7 +487,7 @@ if (settings.doCaretTuning) {
   #eXtreme Gradient Boosting	xgbTree	Dual Use	nrounds, max_depth, eta
   
   xgbTreeGrid <- expand.grid(
-    nrounds = 100, # 2000
+    nrounds = 2000, # 2000
     max_depth = 8,
     eta = c(0.05,0.02))
 
