@@ -34,7 +34,7 @@ settings.useSmallSample <- F # set to true to quickly test changes on a subset o
 # settings.useSmallSample <- T # set to true to quickly test changes on a subset of the training data
 
 settings.doCaretTuning <- T
-settings.doXGBoost <- F
+settings.doXGBoost <- T
 settings.doScoring <- !settings.useSmallSample # score the test set for the Kaggle LB
 settings.doGeneratePlots <- F # whether to generate plots for every field 
 settings.threshold.symbin.minsize <- 10 # TODO: add numbin seeting here (minobs)
@@ -47,13 +47,6 @@ settings.gbm.interaction.depth <- 20 # 30 for real score
 settings.gbm.shrinkage <- 0.02 # TODO need to find best value here 
 settings.gbm.cv.folds <- 3 # often 3 on Mac, 5 on Lenovo
 
-settings.xgb.nrounds <- 100
-settings.xgb.max_depth <- 3
-settings.xgb.eta <- 0.1
-settings.xgb.subsample <- 0.5
-settings.xgb.colsample_bytree <- 0.8
-settings.xgb.nthreads <- 3
-settings.xgb.eval_metric <- "auc"
 
 ###########################
 # Read Data
@@ -472,6 +465,7 @@ if (settings.doCaretTuning) {
   
   train_dev$target <- as.factor(train_dev$target) # model needs factor
   levels(train_dev$target) <- c("no", "yes") # predicting probs needs this for some reason
+  # not val?
   
   fitControl <- trainControl(## 10-fold CV
     method = "repeatedcv",
@@ -534,8 +528,18 @@ if (settings.doCaretTuning) {
 } 
 
 if (settings.doXGBoost) {
-  dtrain_dev <- xgb.DMatrix(data.matrix(select(train_dev, -target)), label=train_dev$target)
-  dtrain_val <- xgb.DMatrix(data.matrix(select(train_val, -target)), label=train_val$target)
+  if (class(train_dev$target) == "factor") { #yuk, happens after caret stuff
+    y_dev <- ifelse(train_dev$target == "yes",1,0)
+  } else {
+    y_dev <- train_dev$target
+  }
+  if (class(train_val$target) == "factor") {
+    y_val <- ifelse(train_val$target == "yes",1,0)
+  } else {
+    y_val <- train_val$target
+  }
+  dtrain_dev <- xgb.DMatrix(data.matrix(select(train_dev, -target)), label=y_dev,missing=NA)
+  dtrain_val <- xgb.DMatrix(data.matrix(select(train_val, -target)), label=y_val,missing=NA)
   print(gc())
   
   watchlist <- list(eval = dtrain_val, train = dtrain_dev)
@@ -544,14 +548,15 @@ if (settings.doXGBoost) {
   param <- list(  objective           = "binary:logistic", 
                   #booster = "gblinear",
                   #alpha = 2,
-                  eta                 = settings.xgb.eta,
-                  max_depth           = settings.xgb.max_depth,  
-                  subsample           = settings.xgb.subsample, 
-                  colsample_bytree    = settings.xgb.colsample_bytree,
-#                   min_child_weight    = 10,
+                  eta                 = 0.01,
+                  max_depth           = 8,  
+                  subsample           = 0.7, 
+                  colsample_bytree    = 0.5,
+                  min_child_weight    = 6,
+                  alpha               = 4,
 #                   gamma               = 100,
-                  nthreads            = settings.xgb.nthreads,
-                  eval_metric         = settings.xgb.eval_metric
+                  nthreads            = 3,
+                  eval_metric         = "auc"
 #                   scale_pos_weight = 1/mean(train_dev$target)
                   # alpha = 0.0001, 
                   # lambda = 1
@@ -559,7 +564,7 @@ if (settings.doXGBoost) {
   
   xgbModel <- xgb.train(params              = param, 
                         data                = dtrain_dev, 
-                        nrounds             = settings.xgb.nrounds,
+                        nrounds             = 1000,
                         verbose             = 1, 
                         print.every.n       = 10,
                         early.stop.round    = 100,
@@ -567,17 +572,18 @@ if (settings.doXGBoost) {
                         maximize            = TRUE)
   
   cat("Best XGB iteration:",xgbModel$bestInd,fill=T)
-  
+  cat("Best XGB score:",xgbModel$bestScore,fill=T)
+
   # feature importance
   importance_mx <- xgb.importance(names(train_dev), model=xgbModel)
   print( xgb.plot.importance(head(importance_mx,50) )) 
   
   # predictions
-  predictions <- predict(xgbModel, data.matrix(select(train_val, -target)),ntreelimit=xgbModel$bestInd)
-  predictions_dev <- predict(xgbModel, data.matrix(select(train_dev, -target)),ntreelimit=xgbModel$bestInd)
+  predictions <- predict(xgbModel, dtrain_val, ntreelimit=xgbModel$bestInd)
+  predictions_dev <- predict(xgbModel, dtrain_dev, ntreelimit=xgbModel$bestInd)
   if (settings.doScoring) {
     print("Scoring test set")
-    pr <- predict(xgbModel, data.matrix(test),ntreelimit=xgbModel$bestInd)
+    pr <- predict(xgbModel, xgb.DMatrix(data.matrix(test), missing = NA), ntreelimit=xgbModel$bestInd)
   }
 }
 
