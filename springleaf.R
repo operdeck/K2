@@ -28,7 +28,7 @@ param0 <- list(
   # general , non specific params - just guessing
   "objective"  = "binary:logistic"
   , "eval_metric" = "auc"
-  , "eta" = 0.01
+  , "eta" = 0.005 # instead of 0.01
   , "subsample" = 0.7
   , "colsample_bytree" = 0.5
   , "min_child_weight" =6
@@ -173,9 +173,9 @@ model = xgb.train(
   nrounds = 2000   # increase for more results at home
   , params = param0
   , data = xgtrain
-  , early.stop.round = 5
+  , early.stop.round = 100
   , watchlist = watchlist
-  , print.every.n = 5
+  , print.every.n = 10
 )
 
 bst <- model$bestInd
