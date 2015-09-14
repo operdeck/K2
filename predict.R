@@ -552,9 +552,9 @@ if (settings.doXGBoost) {
                   max_depth           = 8,  
                   subsample           = 0.7, 
                   colsample_bytree    = 0.5,
-                  min_child_weight    = 6,
+                  min_child_weight    = 20,
                   alpha               = 4,
-#                   gamma               = 100,
+                  gamma               = 100,
                   nthreads            = 3,
                   eval_metric         = "auc"
 #                   scale_pos_weight = 1/mean(train_dev$target)

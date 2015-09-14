@@ -3,7 +3,7 @@
 
 # TODO, bring in features of predict.R:
 # X practicalities: use 'fread', rewrite wrinting of results
-# - more rounds
+# X more rounds
 # X adding of date variants
 # X adding of 'countNA' feature
 # X handling of symbolics with -1 fields
