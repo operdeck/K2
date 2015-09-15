@@ -24,16 +24,19 @@ library(caret)
 
 #--------- P A R A M S ------------------------------------------------
 
+# params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
+
 param0 <- list(
   # general , non specific params - just guessing
   "objective"  = "binary:logistic"
   , "eval_metric" = "auc"
-  , "eta" = 0.005 # instead of 0.01
+  , "eta" = 0.005 # instead of 0.01 --> improvement
   , "subsample" = 0.7
   , "colsample_bytree" = 0.5
   , "min_child_weight" =6
   , "max_depth" = 9
   , "alpha" = 4
+  , "lambda" = 10 # instead of not present at all; 100 is too slow
   , "nthreads" = 3
 )
 
@@ -84,7 +87,7 @@ isDate <- function(vec) {
 }
 
 dateFldNames <- colnames(train)[sapply(colnames(train), function(colName) 
-  { class(train[[colName]]) == "character" & isDate(na.omit(train[[colName]])) } )]
+{ class(train[[colName]]) == "character" & isDate(na.omit(train[[colName]])) } )]
 cat("Date fields: ", dateFldNames, " (", length(dateFldNames), ")", fill=T)
 
 # Convert dates to time to epoch and add derived field(s) like weekday
@@ -95,6 +98,7 @@ processDateFlds <- function(ds, colNames) {
     # what happens with NAs?
     asDate <- strptime(ds[[colName]], format="%d%b%y")
     result[[paste(colName, "_wday", sep="")]] <- wday(asDate)
+    result[[paste(colName, "_mday", sep="")]] <- mday(asDate)
     result[[paste(colName, "_week", sep="")]] <- week(asDate)
     result[[colName]] <- as.double(difftime(epoch, asDate,units='days'))
   }
@@ -138,7 +142,7 @@ print("Check (near) zero variance")
 
 # TODO switch back to nearZeroVar()
 zeroVarCols <- colnames(train)[sapply(colnames(train), function(colName) 
-  {return (length(unique(train[[colName]])) < 2)})]
+{return (length(unique(train[[colName]])) < 2)})]
 cat("Removed zero variance cols:", length(zeroVarCols), fill=T)
 train <- train[,!(names(train) %in% zeroVarCols)]
 test  <- test[,!(names(test) %in% zeroVarCols)]
@@ -205,7 +209,7 @@ if (settings.doScoring) {
   xgtest <- xgb.DMatrix(as.matrix(test), missing = NA)
   
   preds_out <- predict(model, xgtest, ntreelimit = bst)
-
+  
   subm <- data.frame(testIDs, preds_out)
   colnames(subm) <- c('ID','target')
   write.csv(subm, "./new_submission.csv", row.names=FALSE)
