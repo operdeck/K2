@@ -7,6 +7,7 @@
 # X adding of date variants
 # X adding of 'countNA' feature
 # X handling of symbolics with -1 fields
+# - add profession fields (grouped)
 # - symbolic binning for 'character' columns
 # - numeric binning
 # - univariate selection
@@ -36,7 +37,7 @@ param0 <- list(
   , "min_child_weight" =6
   , "max_depth" = 9
   , "alpha" = 4
-  , "lambda" = 10 # instead of not present at all; 100 is too slow
+  , "lambda" = 5 # instead of not present at all; 100 is too slow
   , "nthreads" = 3
 )
 
@@ -65,8 +66,7 @@ test <- test[,-1]
 
 # Quickly replace missings by NA in symbolic fields
 # (should influence NA row count below)
-# BUT POTENTIALLY HARMFUL
-symNAs <- c("-1","")
+symNAs <- c("") # left out -1
 for (colName in colnames(train)[which(sapply(train, function(col) { return (!is.numeric(col)) } ))]) {
   #   print(createSymbin(train[[colName]],train$target))
   train[[colName]][train[[colName]] %in% symNAs] <- NA
@@ -95,12 +95,12 @@ processDateFlds <- function(ds, colNames) {
   result <- ds
   for (colName in colNames) {
     #cat("Date: ", colName, fill=T)
-    # what happens with NAs?
     asDate <- strptime(ds[[colName]], format="%d%b%y")
-    result[[paste(colName, "_wday", sep="")]] <- wday(asDate)
-    result[[paste(colName, "_mday", sep="")]] <- mday(asDate)
-    result[[paste(colName, "_week", sep="")]] <- week(asDate)
+    result[[paste(colName, "wday", sep="_")]] <- wday(asDate)
+    result[[paste(colName, "mday", sep="_")]] <- mday(asDate)
+    result[[paste(colName, "week", sep="_")]] <- week(asDate)
     result[[colName]] <- as.double(difftime(epoch, asDate,units='days'))
+    names(result)[ which(names(result) == colName) ] <- paste(colName,"date",sep="_")
   }
   return(result)
 }
@@ -127,8 +127,8 @@ train <- processDateFlds(train, dateFldNames)
 test <- processDateFlds(test, dateFldNames)
 
 if (length(dateFldNames) > 0) {
-  train <- combineDates(train, dateFldNames)
-  test <- combineDates(test, dateFldNames)
+  train <- combineDates(train, paste(dateFldNames,"date",sep="_"))
+  test <- combineDates(test, paste(dateFldNames,"date",sep="_"))
 }
 
 ###########################
@@ -174,7 +174,7 @@ xgval = xgb.DMatrix(as.matrix(train[hold,]), label = y[hold], missing = NA)
 gc()
 watchlist <- list('val' = xgval, 'dev' = xgtrain)
 model = xgb.train(
-  nrounds = 2000   # increase for more results at home
+  nrounds = 3000   # increase for more results at home
   , params = param0
   , data = xgtrain
   , early.stop.round = 100
