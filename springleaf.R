@@ -31,7 +31,7 @@ param0 <- list(
   # general , non specific params - just guessing
   "objective"  = "binary:logistic"
   , "eval_metric" = "auc"
-  , "eta" = 0.005 # instead of 0.01 --> improvement
+  , "eta" = 0.0075 # instead of 0.01 --> improvement
   , "subsample" = 0.7
   , "colsample_bytree" = 0.5
   , "min_child_weight" =6
