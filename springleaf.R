@@ -74,11 +74,16 @@ for (colName in colnames(train)[which(sapply(train, function(col) { return (!is.
   #   print(createSymbin(train[[colName]],train$target))
 }
 
-# Special extra fields - before doing any further processing
-# Add variable with nr of missing values per row. Make double to ensure numeric treatment.
+# Row-wise count of number of strange values
 print("Counting NA's per row - time consuming")
-train$xtraNumNAs <- as.double(apply(train, 1, function(z) sum(is.na(z))))
-test$xtraNumNAs <- as.double(apply(test, 1, function(z) sum(is.na(z))))
+countNA <- function(ds) 
+{
+  return (as.double(apply(ds,1,
+                          function(x) 
+                            sum(is.na(x) | grepl("99[6789]$",as.character(x))))))
+}
+train$xtraNumNAs <- countNA(train)
+test$xtraNumNAs <- countNA(test)
 
 # Date field detection
 
@@ -159,8 +164,8 @@ for (i in 1:ncol(train)) {
 # NA handling
 ###########################
 
-train[is.na(train)] <- -9999
-test[is.na(test)] <- -9999
+train[is.na(train)] <- -98765
+test[is.na(test)] <- -98765
 
 # some simple feature cleaning/engineering boosts the LB-AUC by 0.0025. 
 
@@ -174,7 +179,7 @@ xgval = xgb.DMatrix(as.matrix(train[hold,]), label = y[hold], missing = NA)
 gc()
 watchlist <- list('val' = xgval, 'dev' = xgtrain)
 model = xgb.train(
-  nrounds = 3000   # increase for more results at home
+  nrounds = 4000   # increase for more results at home
   , params = param0
   , data = xgtrain
   , early.stop.round = 100
