@@ -14,7 +14,6 @@
 # - deselection of correlated predictors
 # - deselection of linearly correlated predictors
 
-#--------- L I B R A R Y ------------------------------------------------
 library(xgboost)
 library(readr)
 library(data.table)
@@ -22,8 +21,43 @@ library(bit64)
 library(lubridate)
 library(pROC)
 library(caret)
+library(dplyr)
 
-#--------- P A R A M S ------------------------------------------------
+###########################
+# Settings
+###########################
+
+get <- function(settingsName) {
+  if (is.null(settings[[settingsName]])) {
+    stop(paste("Missing setting:", settingsName))
+  }
+  return (settings[[settingsName]])
+  
+}
+
+settings_small <- list(
+  "useSmallSample"=TRUE
+  ,"doScoring"=FALSE
+  ,"nrounds"=500
+  ,"eta"=0.01
+  ,"min_child_weight"=6
+  ,"max_depth"=5
+  ,"alpha"=4
+  ,"lambda"=5)
+
+settings_big <- list(
+  "useSmallSample"=FALSE
+  ,"doScoring"=TRUE
+  ,"nrounds"=4000
+  ,"eta"=0.0075
+  ,"min_child_weight"=6
+  ,"max_depth"=9
+  ,"alpha"=4
+  ,"lambda"=5)
+
+if (!exists("settings")) {
+  settings <- settings_small
+}
 
 # params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
 
@@ -31,17 +65,15 @@ param0 <- list(
   # general , non specific params - just guessing
   "objective"  = "binary:logistic"
   , "eval_metric" = "auc"
-  , "eta" = 0.0075 # instead of 0.01 --> improvement
+  , "eta" = get("eta")
   , "subsample" = 0.7
   , "colsample_bytree" = 0.5
-  , "min_child_weight" =6
-  , "max_depth" = 9
-  , "alpha" = 4
-  , "lambda" = 5 # instead of not present at all; 100 is too slow
+  , "min_child_weight" = get("min_child_weight")
+  , "max_depth" = get("max_depth")
+  , "alpha" = get("alpha")
+  , "lambda" = get("lambda")
   , "nthreads" = 3
 )
-
-settings.doScoring <- T
 
 version="local"
 set.seed(1948)
@@ -51,14 +83,22 @@ epoch <- now()
 # Data read
 ###########################
 
-train <- fread( "data/train-2.csv",header = T, sep = ",",
-                stringsAsFactors=F,integer64="double",data.table=F )
+if (get("useSmallSample")) {
+  train <- fread( "data/train_small.csv",header = T, sep = ",",
+                  stringsAsFactors=F,integer64="double",data.table=F )
+  test <- fread( "data/test_small.csv",header = T, sep = ",",
+                 stringsAsFactors=F,integer64="double",data.table=F)
+} else {
+  train <- fread( "data/train-2.csv",header = T, sep = ",",
+                  stringsAsFactors=F,integer64="double",data.table=F )
+  test <- fread( "data/test-2.csv",header = T, sep = ",",
+                 stringsAsFactors=F,integer64="double",data.table=F)
+}
+cat("Train set:",dim(train),fill=T)
 y <- train$target
-train <- train[,-c(1, 1934)]
-test <- fread( "data/test-2.csv",header = T, sep = ",",
-               stringsAsFactors=F,integer64="double",data.table=F)
+train <- select(train, -ID, -target)
 testIDs <- test$ID
-test <- test[,-1]
+test <- select(test, -ID)
 
 ###########################
 # Data preparation
@@ -167,8 +207,6 @@ for (i in 1:ncol(train)) {
 train[is.na(train)] <- -98765
 test[is.na(test)] <- -98765
 
-# some simple feature cleaning/engineering boosts the LB-AUC by 0.0025. 
-
 ###########################
 # Model building
 ###########################
@@ -179,7 +217,7 @@ xgval = xgb.DMatrix(as.matrix(train[hold,]), label = y[hold], missing = NA)
 gc()
 watchlist <- list('val' = xgval, 'dev' = xgtrain)
 model = xgb.train(
-  nrounds = 4000   # increase for more results at home
+  nrounds = get("nrounds")
   , params = param0
   , data = xgtrain
   , early.stop.round = 100
@@ -193,21 +231,28 @@ cat("Best XGB iteration:", bst, fill=T)
 cat("Best XGB score:", model$bestScore,fill=T)
 cat("Number of vars: ", length(colnames(train)), fill=T)
 
-cat("AUC val:", auc(y[hold], predict(model, xgval, ntreelimit=bst)), fill=T)
-cat("AUC dev:", auc(y[-hold], predict(model, xgtrain, ntreelimit=bst)), fill=T)
+valPerf <- as.double(auc(y[hold], predict(model, xgval, ntreelimit=bst)))
+cat("AUC val:", valPerf, fill=T)
+devPerf <- as.double(auc(y[-hold], predict(model, xgtrain, ntreelimit=bst)))
+cat("AUC dev:", devPerf, fill=T)
 
 # feature importance
 importance_mx <- xgb.importance(names(train), model=model)
 print( xgb.plot.importance(head(importance_mx,50) )) 
+if (F) {
+  # dump for use in e.g. small dataset creator
+  write.table(importance_mx, "./importance_mx.csv", row.names=FALSE, sep=";", dec=",")
+  print( paste( head(importance_mx[['Feature']], 100), collapse='","') )
+}
 
 ###########################
 # Score test set and write out
 ###########################
 
-if (settings.doScoring) {
+if (get("doScoring")) {
   
   cat("Scoring test set.",fill=T)
-  rm("train")
+  #rm("train")
   rm("xgval") 
   rm("xgtrain")
   gc()
@@ -223,5 +268,15 @@ if (settings.doScoring) {
   print("Not scoring test set")
 }
 
-cat('total time:', difftime(now(),epoch,units='mins'), 'minutes', fill=T )
+duration <- as.double(difftime(now(),epoch,units='mins'))
+cat('total time:', duration, 'minutes', fill=T )
 
+results <- list("when"=as.character(epoch),
+                "bestScore"=model$bestScore,
+                "bestRound"=model$bestInd,
+                "valPerf"=valPerf,
+                "devPerf"=devPerf,
+                "duration"=duration,
+                "settings"=settings)
+
+rm("settings")
