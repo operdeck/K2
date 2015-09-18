@@ -39,6 +39,7 @@ settings_small <- list(
   "useSmallSample"=TRUE
   ,"doScoring"=FALSE
   ,"nrounds"=500
+  ,"print.every.n"=10
   ,"eta"=0.01
   ,"min_child_weight"=6
   ,"max_depth"=5
@@ -49,6 +50,7 @@ settings_big <- list(
   "useSmallSample"=FALSE
   ,"doScoring"=TRUE
   ,"nrounds"=4000
+  ,"print.every.n"=10
   ,"eta"=0.0075
   ,"min_child_weight"=6
   ,"max_depth"=9
@@ -222,12 +224,12 @@ model = xgb.train(
   , data = xgtrain
   , early.stop.round = 100
   , watchlist = watchlist
-  , print.every.n = 10
+  , print.every.n = get("print.every.n")
 )
 
 bst <- model$bestInd
 
-cat("Best XGB iteration:", bst, fill=T)
+cat("\nBest XGB iteration:", bst, fill=T)
 cat("Best XGB score:", model$bestScore,fill=T)
 cat("Number of vars: ", length(colnames(train)), fill=T)
 

@@ -5,7 +5,10 @@ tuneGrid <- data.frame(vector(,nRows))
 
 # see https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
 tuneGrid$eta <- sample( seq(0.001,0.01,by=0.001), nRows, replace=T )
-tuneGrid$nrounds <- 1000
+tuneGrid$nrounds <- 4000
+tuneGrid$print.every.n <- 100
+tuneGrid$useSmallSample <- T
+tuneGrid$doScoring <- F
 tuneGrid$min_child_weight <- sample( seq(1,20,by=2), nRows, replace=T )
 tuneGrid$max_depth <- sample( seq(6,10,by=1), nRows, replace=T )
 tuneGrid$alpha <- sample( c(0,1,2,4,6,10,50,100), nRows, replace=T )
@@ -20,9 +23,8 @@ for (r in 1:nrow(tuneGrid)) {
   for (colName in names(tuneGrid)) {
     settings[colName] <- tuneGrid[[colName]][r] 
   }
+  cat("Tuning parameters (round", r, "):", fill=T)
   print(tuneGrid[r,])
-  settings["useSmallSample"] <- T
-  settings["doScoring"] <- F
   
   # Model building here
   source("springleaf.R")
