@@ -1,30 +1,8 @@
 # Driver to find model tuning parameters
 
-nRows <- 100
-tuneGrid <- data.frame(vector(,nRows))
-
-# see https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
-tuneGrid$eta <- sample( seq(0.001,0.01,by=0.001), nRows, replace=T )
-tuneGrid$nrounds <- 4000
-tuneGrid$print.every.n <- 100
-tuneGrid$useSmallSample <- T
-tuneGrid$doScoring <- F
-tuneGrid$min_child_weight <- sample( seq(1,20,by=2), nRows, replace=T )
-tuneGrid$max_depth <- sample( seq(6,10,by=1), nRows, replace=T )
-tuneGrid$alpha <- sample( c(0,1,2,4,6,10,50,100), nRows, replace=T )
-tuneGrid$lambda <- sample( c(1,2,4,6,10,50,100), nRows, replace=T )
-tuneGrid$gamma <- sample( c(0,1,2,4,8,16,32,64,128), nRows, replace=T )
-
-tuneGrid <- tuneGrid[-1]
-print(tuneGrid)
-
-for (r in 1:nrow(tuneGrid)) {
-  settings <- list()
-  for (colName in names(tuneGrid)) {
-    settings[colName] <- tuneGrid[[colName]][r] 
-  }
+for (r in 1:100) {
   cat("Tuning parameters (round", r, "):", fill=T)
-  print(tuneGrid[r,])
+  source("./settings.R")
   
   # Model building here
   source("springleaf.R")
@@ -37,8 +15,8 @@ for (r in 1:nrow(tuneGrid)) {
     }
   }
   # Add the tuning parameters
-  for (param in names(tuneGrid)) {
-    newResults[[param]] <- tuneGrid[[param]][r]
+  for (param in names(results[["settings"]])) {
+    newResults[[param]] <- results[["settings"]][[param]]
   }
   newResults <- newResults[-1]
   
@@ -64,7 +42,7 @@ for (r in 1:nrow(tuneGrid)) {
   print(newResults)
   print("Best results:")
   print(tuneResults[1,])
-  write.csv2(tuneResults, "./tuneResults.csv", row.names=F)
+  write.csv2(format(tuneResults,digits=6), "./tuneResults.csv", row.names=F)
   
   if (exists("settings")) {
     rm("settings")

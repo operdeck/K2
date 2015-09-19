@@ -48,8 +48,8 @@ settings_small <- list(
 
 settings_big <- list(
   "useSmallSample"=FALSE
-  ,"doScoring"=TRUE
-  ,"nrounds"=4000
+  ,"doScoring"=T
+  ,"nrounds"=10
   ,"print.every.n"=10
   ,"eta"=0.0075
   ,"min_child_weight"=6
@@ -58,7 +58,7 @@ settings_big <- list(
   ,"lambda"=5)
 
 if (!exists("settings")) {
-  settings <- settings_small
+  settings <- settings_big
 }
 
 # params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
@@ -88,19 +88,25 @@ epoch <- now()
 if (get("useSmallSample")) {
   train <- fread( "data/train_small.csv",header = T, sep = ",",
                   stringsAsFactors=F,integer64="double",data.table=F )
-  test <- fread( "data/test_small.csv",header = T, sep = ",",
-                 stringsAsFactors=F,integer64="double",data.table=F)
+  if (get("doScoring")) {
+    test <- fread( "data/test_small.csv",header = T, sep = ",",
+                   stringsAsFactors=F,integer64="double",data.table=F)
+  }
 } else {
   train <- fread( "data/train-2.csv",header = T, sep = ",",
                   stringsAsFactors=F,integer64="double",data.table=F )
-  test <- fread( "data/test-2.csv",header = T, sep = ",",
+  if (get("doScoring")) {
+    test <- fread( "data/test-2.csv",header = T, sep = ",",
                  stringsAsFactors=F,integer64="double",data.table=F)
+  }
 }
 cat("Train set:",dim(train),fill=T)
 y <- train$target
 train <- select(train, -ID, -target)
-testIDs <- test$ID
-test <- select(test, -ID)
+if (get("doScoring")) {
+  testIDs <- test$ID
+  test <- select(test, -ID)
+}
 
 ###########################
 # Data preparation
@@ -112,7 +118,9 @@ symNAs <- c("") # left out -1
 for (colName in colnames(train)[which(sapply(train, function(col) { return (!is.numeric(col)) } ))]) {
   #   print(createSymbin(train[[colName]],train$target))
   train[[colName]][train[[colName]] %in% symNAs] <- NA
-  test[[colName]][test[[colName]] %in% symNAs] <- NA
+  if (get("doScoring")) {
+    test[[colName]][test[[colName]] %in% symNAs] <- NA
+  }
   #   print(createSymbin(train[[colName]],train$target))
 }
 
@@ -125,7 +133,9 @@ countNA <- function(ds)
                             sum(is.na(x) | grepl("99[6789]$",as.character(x))))))
 }
 train$xtraNumNAs <- countNA(train)
-test$xtraNumNAs <- countNA(test)
+if (get("doScoring")) {
+  test$xtraNumNAs <- countNA(test)
+}
 
 # Date field detection
 
@@ -145,7 +155,7 @@ processDateFlds <- function(ds, colNames) {
     asDate <- strptime(ds[[colName]], format="%d%b%y")
     result[[paste(colName, "wday", sep="_")]] <- wday(asDate)
     result[[paste(colName, "mday", sep="_")]] <- mday(asDate)
-    result[[paste(colName, "week", sep="_")]] <- week(asDate)
+    result[[paste(colName, "yday", sep="_")]] <- yday(asDate)
     result[[colName]] <- as.double(difftime(epoch, asDate,units='days'))
     names(result)[ which(names(result) == colName) ] <- paste(colName,"date",sep="_")
   }
@@ -171,11 +181,48 @@ combineDates <- function(ds, fldNames) {
 }
 
 train <- processDateFlds(train, dateFldNames)
-test <- processDateFlds(test, dateFldNames)
+if (get("doScoring")) {
+  test <- processDateFlds(test, dateFldNames)
+}
 
 if (length(dateFldNames) > 0) {
   train <- combineDates(train, paste(dateFldNames,"date",sep="_"))
-  test <- combineDates(test, paste(dateFldNames,"date",sep="_"))
+  if (get("doScoring")) {
+    test <- combineDates(test, paste(dateFldNames,"date",sep="_"))
+  }
+}
+
+processTitle <- function(ds) {
+  data <- ifelse(ds$VAR_0404 == "-1", ds$VAR_0493, 
+                 ifelse(ds$VAR_0493 == "-1", ds$VAR_0404, 
+                        paste(ds$VAR_0404, ds$VAR_0493)))
+  
+  
+  result <- ds
+  
+  result[["title_isExecutive"]] <- match( data, 
+                        c("DIRECTOR", "PRESIDENT", "CEO", "MANAGER", "CHIEF EXECUTIVE OFFICER",
+                          "BOARD MEMBER", "CFO", "CHIEF FINANCIAL OFFICER", "MANAGING MEMBER",
+                          "VP", "CHAIRMAN", "MANAG") )
+  result[["title_Entrepeneur"]] <- match( data, c("INDIVIDUAL - SOLE OWNER", "OWNER", "FOUNDER") )
+  result[["title_Medical"]] <- match( data, c("MEDICAL ASSISTANT", "PHARMACY TECHNICIAN", "NURSE", "NURSING", 
+                              "THERAPIST", "MEDICATION", "DENTAL",
+                              "HYGIENIST", "BARBER", "MANICURIST", "PHARMACIST", "COSMETOLOGIST") )
+  result[["title_Financial"]] <- match( data, c("TREASURER","REGISTRANT","INSURANCE","TAX","LEGAL","ACCOUNTANT"))
+  result[["title_Asistant"]] <- match( data, c("SECRETARY","ASSISTANT"))
+  result[["title_Officer"]] <- match( data, c("OFFICER"))
+  result[["title_Legal"]] <- match( data, c("ATTORNEY", "LAW", "LEGAL"))
+  result[["title_Social"]] <- match( data, c("SOCIAL","COUNSELOR"))
+  result[["title_Tech"]] <- match( data, c("TECH","ELECTRICIANS"))
+  result[["title_RealEstate"]] <- match( data, c("REAL ESTATE","MORTGAGE"))
+  result[["title_Missing"]] <- match( data, c("-1","OTHER","TITLE NOT SPECIFIED")) | is.na(data) | data == "" | data == " "
+
+  return (result)
+}
+
+train <- processTitle(train)
+if (get("doScoring")) {
+  test <- processTitle(test)
 }
 
 ###########################
@@ -192,13 +239,20 @@ zeroVarCols <- colnames(train)[sapply(colnames(train), function(colName)
 {return (length(unique(train[[colName]])) < 2)})]
 cat("Removed zero variance cols:", length(zeroVarCols), fill=T)
 train <- train[,!(names(train) %in% zeroVarCols)]
-test  <- test[,!(names(test) %in% zeroVarCols)]
+if (get("doScoring")) {
+  test  <- test[,!(names(test) %in% zeroVarCols)]
+}
 
 for (i in 1:ncol(train)) {
   if (class(train[[i]]) == "character") {
-    tmp= as.numeric(as.factor(c(train[[i]], test[[i]])))
-    train[[i]]<- head(tmp, nrow(train))
-    test[[i]]<- tail(tmp, nrow(test))
+    if (get("doScoring")) {
+      tmp= as.numeric(as.factor(c(train[[i]], test[[i]])))
+      train[[i]]<- head(tmp, nrow(train))
+      test[[i]]<- tail(tmp, nrow(test))
+    } else {
+      tmp= as.numeric(as.factor(train[[i]]))
+      train[[i]]<- head(tmp, nrow(train))
+    }
   }
 }
 
@@ -207,7 +261,9 @@ for (i in 1:ncol(train)) {
 ###########################
 
 train[is.na(train)] <- -98765
-test[is.na(test)] <- -98765
+if (get("doScoring")) {
+  test[is.na(test)] <- -98765
+}
 
 ###########################
 # Model building
@@ -264,14 +320,15 @@ if (get("doScoring")) {
   
   subm <- data.frame(testIDs, preds_out)
   colnames(subm) <- c('ID','target')
-  write.csv(subm, "./new_submission.csv", row.names=FALSE)
-  print("Written submission")
+  fname <- paste("./", gsub("\\.","_",paste("subm",model$bestScore,sep="_")),".csv",sep="")
+  write.csv(subm, fname, row.names=FALSE)
+  cat("Written submission score",model$bestScore,"to",fname,fill=T)
 } else {
   print("Not scoring test set")
 }
 
 duration <- as.double(difftime(now(),epoch,units='mins'))
-cat('total time:', duration, 'minutes', fill=T )
+cat('Duration:', duration, 'minutes', fill=T )
 
 results <- list("when"=as.character(epoch),
                 "bestScore"=model$bestScore,
