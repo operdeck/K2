@@ -74,11 +74,11 @@ param0 <- list(
   , "max_depth" = get("max_depth")
   , "alpha" = get("alpha")
   , "lambda" = get("lambda")
-  , "nthreads" = 3
+  # , "nthreads" = 3
 )
 
 version="local"
-set.seed(1948)
+#set.seed(1948)
 epoch <- now()
 
 ###########################
