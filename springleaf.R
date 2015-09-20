@@ -58,7 +58,7 @@ settings_big <- list(
   ,"lambda"=5)
 
 if (!exists("settings")) {
-  settings <- settings_big
+  settings <- settings_small
 }
 
 # params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
@@ -74,12 +74,13 @@ param0 <- list(
   , "max_depth" = get("max_depth")
   , "alpha" = get("alpha")
   , "lambda" = get("lambda")
-  # , "nthreads" = 3
+  , "nthreads" = 2
 )
 
 version="local"
 #set.seed(1948)
 epoch <- now()
+valPercentage <- 0.10 # percentage used for early stopping / validation
 
 ###########################
 # Data read
@@ -269,10 +270,20 @@ if (get("doScoring")) {
 # Model building
 ###########################
 
-hold <- sample(1:nrow(train), 15000) #10% training data for stopping
+hold <- sample(1:nrow(train), valPercentage * nrow(train)) # 10% validation, also used for early stopping
 xgtrain = xgb.DMatrix(as.matrix(train[-hold,]), label = y[-hold], missing = NA)
 xgval = xgb.DMatrix(as.matrix(train[hold,]), label = y[hold], missing = NA)
 gc()
+
+# history <- xgb.cv(  nrounds = get("nrounds")
+#                     , params = param0
+#                     , data = xgtrain
+#                     , early.stop.round = 100
+#                     , nfold = 5
+#                     , print.every.n = get("print.every.n") )
+#                     
+# print(history)
+
 watchlist <- list('val' = xgval, 'dev' = xgtrain)
 model = xgb.train(
   nrounds = get("nrounds")
@@ -320,7 +331,9 @@ if (get("doScoring")) {
   
   subm <- data.frame(testIDs, preds_out)
   colnames(subm) <- c('ID','target')
-  fname <- paste("./", gsub("\\.","_",paste("subm",model$bestScore,sep="_")),".csv",sep="")
+  fname <- paste("./", gsub("\\.","_",
+                            paste("subm",model$bestScore,format(epoch, format="%Y%m%d_%H%M%S"), sep="_")),
+                 ".csv",sep="")
   write.csv(subm, fname, row.names=FALSE)
   cat("Written submission score",model$bestScore,"to",fname,fill=T)
 } else {

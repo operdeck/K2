@@ -42,6 +42,10 @@ for (r in 1:100) {
   print(newResults)
   print("Best results:")
   print(tuneResults[1,])
+  
+  # only keep > .78 and the current best (just in case there's no great scores yet)
+  tuneResults <- tuneResults[unique(c(1,which(tuneResults$bestScore > 0.78))),]
+  
   write.csv2(format(tuneResults,digits=6), "./tuneResults.csv", row.names=F)
   
   if (exists("settings")) {
