@@ -37,7 +37,7 @@ get <- function(settingsName) {
 
 settings_small <- list(
   "useSmallSample"=TRUE
-  ,"doScoring"=FALSE
+  ,"doScoring"=F
   ,"nrounds"=500
   ,"print.every.n"=10
   ,"eta"=0.01
@@ -58,7 +58,7 @@ settings_big <- list(
   ,"lambda"=5)
 
 if (!exists("settings")) {
-  settings <- settings_small
+  settings <- settings_big
 }
 
 # params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
@@ -78,7 +78,7 @@ param0 <- list(
 )
 
 version="local"
-#set.seed(1948)
+set.seed(1948) # just like before
 epoch <- now()
 valPercentage <- 0.10 # percentage used for early stopping / validation
 
@@ -221,9 +221,12 @@ processTitle <- function(ds) {
   return (result)
 }
 
-train <- processTitle(train)
-if (get("doScoring")) {
-  test <- processTitle(test)
+if (F) # commented out - we did not do this before
+{
+  train <- processTitle(train)
+  if (get("doScoring")) {
+    test <- processTitle(test)
+  }
 }
 
 ###########################
@@ -325,9 +328,19 @@ if (get("doScoring")) {
   rm("xgval") 
   rm("xgtrain")
   gc()
-  xgtest <- xgb.DMatrix(as.matrix(test), missing = NA)
   
-  preds_out <- predict(model, xgtest, ntreelimit = bst)
+#   xgtest <- xgb.DMatrix(as.matrix(test), missing = NA)
+#   preds_out <- predict(model, xgtest, ntreelimit = bst)
+
+  # Process in batches to prevent OOM on windows
+  preds_out <- rep(0.0, nrow(test))
+  batchSize <- 10000
+  for (rows in split(1:nrow(test), ceiling((1:nrow(test))/batchSize))) {
+    xgtest <- xgb.DMatrix(as.matrix(test[rows,]), missing = NA)
+    preds_out[rows] <- predict(model, xgtest, ntreelimit = bst)
+  }
+
+#   all(preds_out == preds_out2)
   
   subm <- data.frame(testIDs, preds_out)
   colnames(subm) <- c('ID','target')
