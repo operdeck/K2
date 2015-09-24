@@ -21,8 +21,9 @@ test <- fread("./data/test-2.csv", header = T, sep = ",",
 keepVars <- c('VAR_0073','VAR_0075','VAR_0204','VAR_0176','VAR_1329', # these are special
               'VAR_0795','VAR_0855', 
               'VAR_0968','VAR_0212','VAR_0884','VAR_0806','VAR_0004', # for some reason
-              'VAR_0540','VAR_0881','VAR_0720','VAR_0003','VAR_0014', # (dates, strings)
+              'VAR_0540','VAR_0881','VAR_0720','VAR_0003','VAR_0014', # (geo, dates, strings)
               'VAR_0200','VAR_0274','VAR_0342','VAR_0404','VAR_0493',
+              'VAR_0241','VAR_0242','VAR_0237','VAR_0342',
               'ID', 'target',
               # below the top N from a big run
               "VAR_0070","VAR_0795","VAR_0074","VAR_0071","VAR_1329","VAR_0004","VAR_0241",

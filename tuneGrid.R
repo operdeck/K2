@@ -46,7 +46,14 @@ for (r in 1:100) {
   # only keep > .78 and the current best (just in case there's no great scores yet)
   tuneResults <- tuneResults[unique(c(1,which(tuneResults$bestScore > 0.78))),]
   
-  write.csv2(format(tuneResults,digits=6), "./tuneResults.csv", row.names=F)
+  write.csv2(format(tuneResults,digits=6), "./tuneResults.csv", row.names=F) # 'internal' format
+  
+  tryCatch({
+    write.table(format(tuneResults,digits=6), "./tuneResults_copy_win.csv", quote=F, sep=",", dec=".", row.names=F)
+  }, warning = function(e) { print("Cannot write copy of tune results. File open? Skipping.")})
+  tryCatch({
+    write.table(format(tuneResults,digits=6), "./tuneResults_copy_mac.csv", quote=F, sep=";", dec=",", row.names=F)
+  }, warning = function(e) { print("Cannot write copy of tune results. File open? Skipping.")})
   
   if (exists("settings")) {
     rm("settings")

@@ -7,12 +7,15 @@
 # X adding of date variants
 # X adding of 'countNA' feature
 # X handling of symbolics with -1 fields
-# - add profession fields (grouped)
-# - symbolic binning for 'character' columns
+# X add profession fields (grouped) [NB: iffy, can be improved]
+# X symbolic binning for 'character' columns
 # - numeric binning
 # - univariate selection
-# - deselection of correlated predictors
+# x deselection of correlated predictors
 # - deselection of linearly correlated predictors
+# - using geo/zip information from the datasets
+
+source("funcs.R")
 
 library(xgboost)
 library(readr)
@@ -22,6 +25,7 @@ library(lubridate)
 library(pROC)
 library(caret)
 library(dplyr)
+library(stringdist)
 
 ###########################
 # Settings
@@ -37,8 +41,8 @@ get <- function(settingsName) {
 
 settings_small <- list(
   "useSmallSample"=TRUE
-  ,"doScoring"=FALSE
-  ,"nrounds"=500
+  ,"doScoring"=T
+  ,"nrounds"=200
   ,"print.every.n"=10
   ,"eta"=0.01
   ,"min_child_weight"=6
@@ -49,7 +53,7 @@ settings_small <- list(
 settings_big <- list(
   "useSmallSample"=FALSE
   ,"doScoring"=T
-  ,"nrounds"=10
+  ,"nrounds"=200
   ,"print.every.n"=10
   ,"eta"=0.0075
   ,"min_child_weight"=6
@@ -58,7 +62,7 @@ settings_big <- list(
   ,"lambda"=5)
 
 if (!exists("settings")) {
-  settings <- settings_big
+  settings <- settings_small
 }
 
 # params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
@@ -133,9 +137,9 @@ countNA <- function(ds)
                           function(x) 
                             sum(is.na(x) | grepl("99[6789]$",as.character(x))))))
 }
-train$xtraNumNAs <- countNA(train)
+train$numMissing <- countNA(train)
 if (get("doScoring")) {
-  test$xtraNumNAs <- countNA(test)
+  test$numMissing <- countNA(test)
 }
 
 # Date field detection
@@ -148,22 +152,33 @@ dateFldNames <- colnames(train)[sapply(colnames(train), function(colName)
 { class(train[[colName]]) == "character" & isDate(na.omit(train[[colName]])) } )]
 cat("Date fields: ", dateFldNames, " (", length(dateFldNames), ")", fill=T)
 
-# Convert dates to time to epoch and add derived field(s) like weekday
+# Standard conversion of dates:
+# - derived fields day of week/month/year
+# - time till today
+# - absolute time
 processDateFlds <- function(ds, colNames) {
   result <- ds
   for (colName in colNames) {
-    #cat("Date: ", colName, fill=T)
     asDate <- strptime(ds[[colName]], format="%d%b%y")
     result[[paste(colName, "wday", sep="_")]] <- wday(asDate)
     result[[paste(colName, "mday", sep="_")]] <- mday(asDate)
     result[[paste(colName, "yday", sep="_")]] <- yday(asDate)
-    result[[colName]] <- as.double(difftime(epoch, asDate,units='days'))
+    result[[paste(colName, "_today", sep="_")]] <- as.double(difftime(epoch, asDate,units='days'))
+    result[[colName]] <- as.double(asDate)
+    # keep absolute date in the current field, but append '_date' to it
     names(result)[ which(names(result) == colName) ] <- paste(colName,"date",sep="_")
   }
   return(result)
 }
 
-# Create combinations of all possible date pairs. Perhaps some date differences are a good predictor.
+if (length(dateFldNames) > 0) {
+  train <- processDateFlds(train, dateFldNames)
+  if (get("doScoring")) {
+    test <- processDateFlds(test, dateFldNames)
+  }
+}
+
+# Create combinations of all possible date pairs.
 combineDates <- function(ds, fldNames) {
   if (length(fldNames) >= 2) {
     first <- fldNames[1]
@@ -181,17 +196,93 @@ combineDates <- function(ds, fldNames) {
   }
 }
 
-train <- processDateFlds(train, dateFldNames)
-if (get("doScoring")) {
-  test <- processDateFlds(test, dateFldNames)
-}
-
 if (length(dateFldNames) > 0) {
   train <- combineDates(train, paste(dateFldNames,"date",sep="_"))
   if (get("doScoring")) {
     test <- combineDates(test, paste(dateFldNames,"date",sep="_"))
   }
 }
+
+#
+# GEO
+#
+
+print("Adding geo info")
+
+# Geo cleansing.
+# Current: same zip/state and city names differing by only 1 char
+# Consider: similar but with city being empty (but maybe not so relevant; review 'dupes' result for this)
+cat("Unique city names before cleanup:", length(unique(train$VAR_0200)), ", dim:", dim(train), fill=T)
+reviewDupes <- select(train, VAR_0200, VAR_0237, VAR_0241) %>% 
+  mutate(stateZip = paste(VAR_0241, VAR_0237, sep="_"),
+         fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_")) %>%
+  distinct()
+potentialDupes <- group_by(reviewDupes, stateZip) %>% dplyr::summarise(n = n(), altName = first(VAR_0200), altID = first(fullGeoID)) %>% filter(n > 1)
+dupes <- mutate(left_join(potentialDupes, reviewDupes, by="stateZip"), 
+                dist=stringdist(altName, VAR_0200)) %>% filter(dist == 1)
+print(dupes)
+
+train <- mutate(train, fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_"))
+train <- left_join(train, select(dupes, altName, fullGeoID), by="fullGeoID") %>%
+  mutate(VAR_0200 = ifelse(is.na(altName), VAR_0200, altName)) %>%
+  select(-fullGeoID, -altName)
+if (get("doScoring")) {
+  test <- mutate(test, fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_"))
+  test <- left_join(test, select(dupes, altName, fullGeoID), by="fullGeoID") %>%
+    mutate(VAR_0200 = ifelse(is.na(altName), VAR_0200, altName)) %>%
+    select(-fullGeoID, -altName)
+}
+cat("Unique city names after cleansing:", length(unique(train$VAR_0200)), ", dim:", dim(train), fill=T)
+
+
+# Replace city by combined city-state name
+train = mutate(train, combinedCityState=paste(VAR_0200, VAR_0237, sep="_")) %>% select(-VAR_0200)
+if (get("doScoring")) {
+  test = mutate(test, combinedCityState=paste(VAR_0200, VAR_0237, sep="_")) %>% select(-VAR_0200)
+  allZipData <- rbind(select(train, combinedCityState, VAR_0241),
+                      select(test, combinedCityState, VAR_0241))
+} else {
+  allZipData <- select(train, combinedCityState, VAR_0241)
+}
+# Count number of zip codes per city as a proxy for the city size:
+zipcodesByCity <- group_by(unique(allZipData), combinedCityState) %>% 
+  dplyr::summarise(proxyCitySize = n()) %>% 
+  arrange(desc(proxyCitySize))
+# Count of same zips as a proxy for population density
+countByZip <- group_by(allZipData, VAR_0241) %>%
+  dplyr::summarise(proxyPopulation = n()) %>%
+  arrange(desc(proxyPopulation))
+
+train <- left_join(train, zipcodesByCity, by="combinedCityState")
+train <- left_join(train, countByZip, by="VAR_0241")
+if (get("doScoring")) {
+  test <- left_join(test, zipcodesByCity, by="combinedCityState")
+  test <- left_join(test, countByZip, by="VAR_0241")
+}
+
+# Create fields for first 2 and 3 chars of zip code and do symbolic binning to bin rank
+# This will be a proxy to response behavior by location (full zip may be too granular, state too course)
+train$zip2 <- substr(train$VAR_0241, 1, 2)
+sb <- createSymbin(train$zip2, y, 0)
+train$zip2 <- applySymbinRank(sb, train$zip2)
+if (get("doScoring")) {
+  test$zip2 <- substr(test$VAR_0241, 1, 2)
+  test$zip2 <- applySymbinRank(sb, test$zip2)
+}
+
+train$zip3 <- substr(train$VAR_0241, 1, 3)
+sb <- createSymbin(train$zip3, y, 0)
+train$zip3 <- applySymbinRank(sb, train$zip3)
+if (get("doScoring")) {
+  test$zip3 <- substr(test$VAR_0241, 1, 3)
+  test$zip3 <- applySymbinRank(sb, test$zip3)
+}
+
+rm("allZipData")
+
+#
+# Group title/profession fields
+#
 
 processTitle <- function(ds) {
   data <- ifelse(ds$VAR_0404 == "-1", ds$VAR_0493, 
@@ -227,10 +318,6 @@ processTitle <- function(ds) {
   }
 
 ######
-# TODO: geo Interactions between zip and place may be interesting. For example: "zip code count per place" 
-# or "place count per zip code" may provide a measure of population density or geographic size.
-# zip VAR_0241, VAR_0242 is a 4-digit zip code add-on, VAR_0241,VAR_0200, VAR_0237 
-# 0241: guess: Zip-Code + Zip4 + HouseNumber;  first 5 digits of VAR_0212 look like post code
 
 # Regularize dummy variables (https://www.kaggle.com/c/springleaf-marketing-response/forums/t/16414/springleleaf-regularize-your-dummy-variables) 
 
@@ -254,15 +341,16 @@ if (get("doScoring")) {
   test  <- test[,!(names(test) %in% zeroVarCols)]
 }
 
+# Symbolic recoding
+
 for (i in 1:ncol(train)) {
   if (class(train[[i]]) == "character") {
+    sb <- createSymbin(train[[i]], y, 0)
+    train[[i]] <- applySymbinRank(sb, train[[i]])
+    setnames(train, i, paste(names(train)[i], "sb", sep="_"))
     if (get("doScoring")) {
-      tmp= as.numeric(as.factor(c(train[[i]], test[[i]])))
-      train[[i]]<- head(tmp, nrow(train))
-      test[[i]]<- tail(tmp, nrow(test))
-    } else {
-      tmp= as.numeric(as.factor(train[[i]]))
-      train[[i]]<- head(tmp, nrow(train))
+      test[[i]] <- applySymbinRank(sb, test[[i]])
+      setnames(test, i, paste(names(test)[i], "sb", sep="_"))
     }
   }
 }
