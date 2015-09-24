@@ -58,7 +58,7 @@ settings_big <- list(
   ,"lambda"=5)
 
 if (!exists("settings")) {
-  settings <- settings_small
+  settings <- settings_big
 }
 
 # params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
@@ -226,6 +226,16 @@ if (get("doScoring")) {
   test <- processTitle(test)
 }
 
+######
+# TODO: geo Interactions between zip and place may be interesting. For example: "zip code count per place" 
+# or "place count per zip code" may provide a measure of population density or geographic size.
+# zip VAR_0241, VAR_0242 is a 4-digit zip code add-on, VAR_0241,VAR_0200, VAR_0237 
+# 0241: guess: Zip-Code + Zip4 + HouseNumber;  first 5 digits of VAR_0212 look like post code
+
+# Regularize dummy variables (https://www.kaggle.com/c/springleaf-marketing-response/forums/t/16414/springleleaf-regularize-your-dummy-variables) 
+
+# duplicates: https://www.kaggle.com/c/springleaf-marketing-response/forums/t/16082/var-0434-var-0449
+
 ###########################
 # Data analysis
 ###########################
@@ -261,10 +271,34 @@ for (i in 1:ncol(train)) {
 # NA handling
 ###########################
 
+# see also .. deletes binary columns that contain 56, 89 or 918 NaN values in the Training set. A binary 
+# column with two values where one of those values is NaN simply tells you which row is NaN and which is not
+# https://www.kaggle.com/raddar/springleaf-marketing-response/removing-irrelevant-vars/code
+
 train[is.na(train)] <- -98765
 if (get("doScoring")) {
   test[is.na(test)] <- -98765
 }
+
+###########################
+# Highly correlated vars
+###########################
+
+#emove unimportant variables (https://www.kaggle.com/raddar/springleaf-marketing-response/removing-irrelevant-vars)
+
+# Watch some of Owen Zhang's talks on YouTube if you haven't already. They'll give you a few more ideas.
+
+trainCor <- cor( sample_n(train, min(nrow(train),10000)), method='spearman') # TODO: effect of this number?
+trainCor[is.na(trainCor)] <- 0
+correlatedVars <- colnames(train)[findCorrelation(trainCor, cutoff = .98, verbose = F)]
+cat("Removed highly correlated cols:", length(correlatedVars), 
+    "(of", length(names(train)), ")", fill=T)
+train <- train[,!(names(train) %in% correlatedVars)]
+if (get("doScoring")) {
+  test  <- test[,!(names(test) %in% correlatedVars)]
+}
+
+cat("Dim train:",dim(train), fill=T)
 
 ###########################
 # Model building
