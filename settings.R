@@ -19,4 +19,3 @@ for (i in 1:length(settings)) {
   str <- paste(str, ifelse(i == 1, "", ", "), names(settings)[i], ":", settings[[i]], sep="")
 }
 print(str)
-
