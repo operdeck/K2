@@ -13,7 +13,7 @@
 # - univariate selection
 # x deselection of correlated predictors
 # - deselection of linearly correlated predictors
-# - using geo/zip information from the datasets
+# X using geo/zip information from the datasets
 
 source("funcs.R")
 
@@ -46,9 +46,11 @@ settings_small <- list(
   ,"print.every.n"=10
   ,"eta"=0.01
   ,"min_child_weight"=6
-  ,"max_depth"=5
+  ,"max_depth"=6
   ,"alpha"=4
-  ,"lambda"=5)
+  ,"lambda"=5
+  ,"random_seed"=1948
+  ,"sb_threshold"=0.001)
 
 settings_big <- list(
   "useSmallSample"=FALSE
@@ -59,7 +61,9 @@ settings_big <- list(
   ,"min_child_weight"=6
   ,"max_depth"=9
   ,"alpha"=4
-  ,"lambda"=5)
+  ,"lambda"=5
+  ,"random_seed"=1948
+  ,"sb_threshold"=0.001)
 
 if (!exists("settings")) {
   settings <- settings_small
@@ -78,11 +82,11 @@ param0 <- list(
   , "max_depth" = get("max_depth")
   , "alpha" = get("alpha")
   , "lambda" = get("lambda")
-  , "nthreads" = 2
+  , "nthreads" = 3
 )
 
 version="local"
-set.seed(1948) # just like before
+set.seed(get("random_seed"))
 epoch <- now()
 valPercentage <- 0.10 # percentage used for early stopping / validation
 
@@ -112,6 +116,7 @@ if (get("doScoring")) {
   testIDs <- test$ID
   test <- select(test, -ID)
 }
+valSetIndices <- sample(1:nrow(train), valPercentage * nrow(train)) # also used for early stopping
 
 ###########################
 # Data preparation
@@ -121,12 +126,12 @@ if (get("doScoring")) {
 # (should influence NA row count below)
 symNAs <- c("") # left out -1
 for (colName in colnames(train)[which(sapply(train, function(col) { return (!is.numeric(col)) } ))]) {
-  #   print(createSymbin(train[[colName]],train$target))
+  #   print(createSymbin(train[[colName]],train$target)) # [-valSetIndices] !!!
   train[[colName]][train[[colName]] %in% symNAs] <- NA
   if (get("doScoring")) {
     test[[colName]][test[[colName]] %in% symNAs] <- NA
   }
-  #   print(createSymbin(train[[colName]],train$target))
+  #   print(createSymbin(train[[colName]],train$target)) # [-valSetIndices] !!!
 }
 
 # Row-wise count of number of strange values
@@ -263,7 +268,7 @@ if (get("doScoring")) {
 # Create fields for first 2 and 3 chars of zip code and do symbolic binning to bin rank
 # This will be a proxy to response behavior by location (full zip may be too granular, state too course)
 train$zip2 <- substr(train$VAR_0241, 1, 2)
-sb <- createSymbin(train$zip2, y, 0)
+sb <- createSymbin(train$zip2[-valSetIndices], y[-valSetIndices], get("sb_threshold"))
 train$zip2 <- applySymbinRank(sb, train$zip2)
 if (get("doScoring")) {
   test$zip2 <- substr(test$VAR_0241, 1, 2)
@@ -271,7 +276,7 @@ if (get("doScoring")) {
 }
 
 train$zip3 <- substr(train$VAR_0241, 1, 3)
-sb <- createSymbin(train$zip3, y, 0)
+sb <- createSymbin(train$zip3[-valSetIndices], y[-valSetIndices], get("sb_threshold"))
 train$zip3 <- applySymbinRank(sb, train$zip3)
 if (get("doScoring")) {
   test$zip3 <- substr(test$VAR_0241, 1, 3)
@@ -345,7 +350,7 @@ if (get("doScoring")) {
 
 for (i in 1:ncol(train)) {
   if (class(train[[i]]) == "character") {
-    sb <- createSymbin(train[[i]], y, 0)
+    sb <- createSymbin(train[[i]] [-valSetIndices], y[-valSetIndices], get("sb_threshold"))
     train[[i]] <- applySymbinRank(sb, train[[i]])
     setnames(train, i, paste(names(train)[i], "sb", sep="_"))
     if (get("doScoring")) {
@@ -392,9 +397,8 @@ cat("Dim train:",dim(train), fill=T)
 # Model building
 ###########################
 
-hold <- sample(1:nrow(train), valPercentage * nrow(train)) # 10% validation, also used for early stopping
-xgtrain = xgb.DMatrix(as.matrix(train[-hold,]), label = y[-hold], missing = NA)
-xgval = xgb.DMatrix(as.matrix(train[hold,]), label = y[hold], missing = NA)
+xgtrain = xgb.DMatrix(as.matrix(train[-valSetIndices,]), label = y[-valSetIndices], missing = NA)
+xgval = xgb.DMatrix(as.matrix(train[valSetIndices,]), label = y[valSetIndices], missing = NA)
 gc()
 
 # history <- xgb.cv(  nrounds = get("nrounds")
@@ -422,9 +426,9 @@ cat("\nBest XGB iteration:", bst, fill=T)
 cat("Best XGB score:", model$bestScore,fill=T)
 cat("Number of vars: ", length(colnames(train)), fill=T)
 
-valPerf <- as.double(auc(y[hold], predict(model, xgval, ntreelimit=bst)))
+valPerf <- as.double(auc(y[valSetIndices], predict(model, xgval, ntreelimit=bst)))
 cat("AUC val:", valPerf, fill=T)
-devPerf <- as.double(auc(y[-hold], predict(model, xgtrain, ntreelimit=bst)))
+devPerf <- as.double(auc(y[-valSetIndices], predict(model, xgtrain, ntreelimit=bst)))
 cat("AUC dev:", devPerf, fill=T)
 
 # feature importance
@@ -463,7 +467,7 @@ if (get("doScoring")) {
   
   subm <- data.frame(testIDs, preds_out)
   colnames(subm) <- c('ID','target')
-  fname <- paste("./", gsub("\\.","_",
+  fname <- paste("submissions/", gsub("\\.","_",
                             paste("subm",model$bestScore,format(epoch, format="%Y%m%d_%H%M%S"), sep="_")),
                  ".csv",sep="")
   write.csv(subm, fname, row.names=FALSE)
