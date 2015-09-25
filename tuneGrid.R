@@ -18,6 +18,8 @@ for (r in 1:100) {
   for (param in names(results[["settings"]])) {
     newResults[[param]] <- results[["settings"]][[param]]
   }
+  newResults$R <- R.Version()['version.string']
+  newResults$OS <- R.Version()['platform']
   newResults <- newResults[-1]
   
   if(file.exists("submissions/tuneResults.csv")) {
