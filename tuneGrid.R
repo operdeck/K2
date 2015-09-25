@@ -23,6 +23,7 @@ for (r in 1:100) {
   newResults <- newResults[-1]
   
   if(file.exists("submissions/tuneResults.csv")) {
+    # Try use fread instead - things are now all strings, it seems. write w/o quotes.
     tuneResults <- read.csv2("submissions/tuneResults.csv", stringsAsFactors=F)
 
     # trickery to add new empty row to tuneResults
@@ -48,13 +49,13 @@ for (r in 1:100) {
   # only keep > .78 and the current best (just in case there's no great scores yet)
   tuneResults <- tuneResults[unique(c(1,which(tuneResults$bestScore > 0.78))),]
   
-  write.csv2(format(tuneResults,digits=6), "submissions/tuneResults.csv", row.names=F) # 'internal' format
+  write.csv2(format(tuneResults,digits=6, nsmall=6), "submissions/tuneResults.csv", row.names=F) # 'internal' format
   
   tryCatch({
-    write.table(format(tuneResults,digits=6), "submissions/tuneResults_copy_win.csv", quote=F, sep=",", dec=".", row.names=F)
+    write.table(format(tuneResults,digits=6, nsmall=6), "submissions/tuneResults_copy_win.csv", quote=F, sep=",", dec=".", row.names=F)
   }, warning = function(e) { print("Cannot write copy of tune results. File open? Skipping.")})
   tryCatch({
-    write.table(format(tuneResults,digits=6), "submissions/tuneResults_copy_mac.csv", quote=F, sep=";", dec=",", row.names=F)
+    write.table(format(tuneResults,digits=6, nsmall=6), "submissions/tuneResults_copy_mac.csv", quote=F, sep=";", dec=",", row.names=F)
   }, warning = function(e) { print("Cannot write copy of tune results. File open? Skipping.")})
   
   if (exists("settings")) {
