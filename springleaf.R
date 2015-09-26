@@ -88,7 +88,7 @@ param0 <- list(
 version="local"
 set.seed(get("random_seed"))
 epoch <- now()
-valPercentage <- 0.10 # percentage used for early stopping / validation
+valPercentage <- 0.20 # percentage used for early stopping / validation
 
 ###########################
 # Data read

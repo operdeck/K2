@@ -5,7 +5,7 @@ settings <- list()
 # see https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
 # below settings from c999f6e... LB 0.79820 - see if that's consistent 
 settings["eta"] <- sample(seq(0.001,0.02,by=0.001),1) # 0.0075
-settings["nrounds"] <- 4000 
+settings["nrounds"] <- 8000 
 settings["print.every.n"] <- 100 
 settings["useSmallSample"] <- F 
 settings["doScoring"] <- T 
