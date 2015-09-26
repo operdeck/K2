@@ -50,7 +50,11 @@ settings_small <- list(
   ,"alpha"=4
   ,"lambda"=5
   ,"random_seed"=1948
-  ,"sb_threshold"=0.001)
+  ,"sb_threshold"=0.001
+  , "valpct" = 20
+  ,"subsample" = 0.7
+  ,"colsample_bytree" = 0.5
+)
 
 settings_big <- list(
   "useSmallSample"=FALSE
@@ -63,7 +67,11 @@ settings_big <- list(
   ,"alpha"=4
   ,"lambda"=5
   ,"random_seed"=1948
-  ,"sb_threshold"=0.001)
+  ,"sb_threshold"=0.001
+  , "valpct" = 20
+  ,"subsample" = 0.7
+  ,"colsample_bytree" = 0.5
+)
 
 if (!exists("settings")) {
   settings <- settings_small
@@ -76,8 +84,8 @@ param0 <- list(
   "objective"  = "binary:logistic"
   , "eval_metric" = "auc"
   , "eta" = get("eta")
-  , "subsample" = 0.7
-  , "colsample_bytree" = 0.5
+  , "subsample" = get("subsample")
+  , "colsample_bytree" = get("colsample_bytree")
   , "min_child_weight" = get("min_child_weight")
   , "max_depth" = get("max_depth")
   , "alpha" = get("alpha")
@@ -88,7 +96,6 @@ param0 <- list(
 version="local"
 set.seed(get("random_seed"))
 epoch <- now()
-valPercentage <- 0.10 # percentage used for early stopping / validation
 
 ###########################
 # Data read
@@ -116,7 +123,7 @@ if (get("doScoring")) {
   testIDs <- test$ID
   test <- select(test, -ID)
 }
-valSetIndices <- sample(1:nrow(train), valPercentage * nrow(train)) # also used for early stopping
+valSetIndices <- sample(1:nrow(train), get("valpct") * nrow(train) / 100) # also used for early stopping
 
 ###########################
 # Data preparation
@@ -133,6 +140,8 @@ for (colName in colnames(train)[which(sapply(train, function(col) { return (!is.
   }
   #   print(createSymbin(train[[colName]],train$target)) # [-valSetIndices] !!!
 }
+
+# change "[]" in VAR_0044 to "false" 
 
 # Row-wise count of number of strange values
 print("Counting NA's per row - time consuming")
