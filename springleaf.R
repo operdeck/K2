@@ -282,19 +282,13 @@ if (get("doScoring")) {
 # Create fields for first 2 and 3 chars of zip code and do symbolic binning to bin rank
 # This will be a proxy to response behavior by location (full zip may be too granular, state too course)
 train$zip2 <- substr(train$VAR_0241, 1, 2)
-sb <- createSymbin(train$zip2[-valSetIndices], y[-valSetIndices], get("sb_threshold"))
-train$zip2 <- applySymbinRank(sb, train$zip2)
 if (get("doScoring")) {
   test$zip2 <- substr(test$VAR_0241, 1, 2)
-  test$zip2 <- applySymbinRank(sb, test$zip2)
 }
 
 train$zip3 <- substr(train$VAR_0241, 1, 3)
-sb <- createSymbin(train$zip3[-valSetIndices], y[-valSetIndices], get("sb_threshold"))
-train$zip3 <- applySymbinRank(sb, train$zip3)
 if (get("doScoring")) {
   test$zip3 <- substr(test$VAR_0241, 1, 3)
-  test$zip3 <- applySymbinRank(sb, test$zip3)
 }
 
 rm("allZipData")
@@ -365,12 +359,19 @@ if (get("doScoring")) {
 # back to simple recode factor levels; use test set??
 for (i in 1:ncol(train)) {
   if (class(train[[i]]) == "character") {
-    sb <- createSymbin(train[[i]] [-valSetIndices], y[-valSetIndices], get("sb_threshold"))
-    train[[i]] <- applySymbinRank(sb, train[[i]])
-    setnames(train, i, paste(names(train)[i], "sb", sep="_"))
+    #sb <- createSymbin(train[[i]] [-valSetIndices], y[-valSetIndices], get("sb_threshold"))
+    #train[[i]] <- applySymbinRank(sb, train[[i]])
+    setnames(train, i, paste(names(train)[i], "sym", sep="_"))
     if (get("doScoring")) {
-      test[[i]] <- applySymbinRank(sb, test[[i]])
-      setnames(test, i, paste(names(test)[i], "sb", sep="_"))
+      u <- unique(c(train[[i]], test[[i]]))
+    } else {
+      u <- unique(c(train[[i]]))
+    }
+    train[[i]] <- as.integer(factor(train[[i]], levels=u)) 
+    if (get("doScoring")) {
+      #test[[i]] <- applySymbinRank(sb, test[[i]])
+      setnames(test, i, paste(names(test)[i], "sym", sep="_"))
+      test[[i]] <- as.integer(factor(test[[i]], levels=u)) 
     }
   }
 }

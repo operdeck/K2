@@ -5,7 +5,7 @@ settings <- list()
 # below settings from c999f6e... LB 0.79820 - see if that's consistent 
 settings["nrounds"] <- 4000 
 settings["print.every.n"] <- 100 
-settings["useSmallSample"] <- F 
+settings["useSmallSample"] <- F
 settings["doScoring"] <- T 
 settings["eta"] <- sample(seq(0.015,0.060,by=0.001),1) # 0.0075
 settings["min_child_weight"] <- round(runif(1, 6, 10)) 
