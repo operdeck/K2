@@ -230,9 +230,10 @@ print("Adding geo info")
 
 # Geo cleansing: fix city names that have same zip/state by differ only marginally
 # Consider: similar but with city being empty (but maybe not so relevant; review 'dupes' result for this)
-cat("Unique city names before cleanup:", length(unique(train$VAR_0200)), ", dim:", dim(train), fill=T)
-reviewDupes <- select(train, VAR_0200, VAR_0237, VAR_0241) %>% 
-  summarise(freq = n()) %>%
+cat("Unique city names before cleanup:", 
+    length(unique(train$VAR_0200)), ", dim:", dim(train), fill=T)
+reviewDupes <- group_by(train, VAR_0200, VAR_0237, VAR_0241) %>% 
+  dplyr::summarise(freq = n()) %>%
   mutate(stateZip = paste(VAR_0241, VAR_0237, sep="_"),
          fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_")) %>%
   distinct() %>% 
@@ -256,13 +257,16 @@ if (get("doScoring")) {
     mutate(VAR_0200 = ifelse(is.na(altName), VAR_0200, altName)) %>%
     select(-fullGeoID, -altName)
 }
-cat("Unique city names after cleansing:", length(unique(train$VAR_0200)), ", dim:", dim(train), fill=T)
+cat("Unique city names after cleansing:", 
+    length(unique(train$VAR_0200)), ", dim:", dim(train), fill=T)
 
 
 # Replace city by combined city-state name
-train = mutate(train, combinedCityState=paste(VAR_0200, VAR_0237, sep="_")) %>% select(-VAR_0200)
+train = mutate(train, 
+               combinedCityState=paste(VAR_0200, VAR_0237, sep="_")) %>% select(-VAR_0200)
 if (get("doScoring")) {
-  test = mutate(test, combinedCityState=paste(VAR_0200, VAR_0237, sep="_")) %>% select(-VAR_0200)
+  test = mutate(test, 
+                combinedCityState=paste(VAR_0200, VAR_0237, sep="_")) %>% select(-VAR_0200)
   allZipData <- rbind(select(train, combinedCityState, VAR_0241),
                       select(test, combinedCityState, VAR_0241))
 } else {
