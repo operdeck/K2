@@ -12,9 +12,9 @@ settings["doScoring"] <- T
 settings["eta"] <- sample(seq(0.006,0.015,by=0.001),1) # 0.0075
 settings["min_child_weight"] <- sample(c(25,100,seq(6,10)),1) # 6
 settings["max_depth"] <- 9 # round(runif(1, 8, 10)) 
-settings["alpha"] <- round(runif(1, 4, 10)) 
-settings["lambda"] <- round(runif(1, 1, 10))
-settings["random_seed"] <- round(runif(1, 1, 10000))
+settings["alpha"] <- round(runif(1, 4, 10)) # 4
+settings["lambda"] <- round(runif(1, 1, 10)) # 5
+settings["random_seed"] <- 1948 # round(runif(1, 1, 10000))
 settings["sb_threshold"] <- 0.0 # sample(seq(0.0001,0.01,by=0.0001),1) # currently not used
 settings["valpct"] <- 10
 settings["subsample"] <- 0.7
