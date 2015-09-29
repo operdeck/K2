@@ -228,17 +228,22 @@ if (length(dateFldNames) > 0) {
 
 print("Adding geo info")
 
-# Geo cleansing.
-# Current: same zip/state and city names differing by only 1 char
+# Geo cleansing: fix city names that have same zip/state by differ only marginally
 # Consider: similar but with city being empty (but maybe not so relevant; review 'dupes' result for this)
 cat("Unique city names before cleanup:", length(unique(train$VAR_0200)), ", dim:", dim(train), fill=T)
 reviewDupes <- select(train, VAR_0200, VAR_0237, VAR_0241) %>% 
+  summarise(freq = n()) %>%
   mutate(stateZip = paste(VAR_0241, VAR_0237, sep="_"),
          fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_")) %>%
-  distinct()
-potentialDupes <- group_by(reviewDupes, stateZip) %>% dplyr::summarise(n = n(), altName = first(VAR_0200), altID = first(fullGeoID)) %>% filter(n > 1)
+  distinct() %>% 
+  ungroup() %>%
+  arrange(stateZip, desc(freq))
+potentialDupes <- group_by(reviewDupes, stateZip) %>% 
+  dplyr::summarise(n = n(), altName = first(VAR_0200), altID = first(fullGeoID)) %>% 
+  filter(n > 1)
 dupes <- mutate(left_join(potentialDupes, reviewDupes, by="stateZip"), 
-                dist=stringdist(altName, VAR_0200)) %>% filter(dist == 1)
+                dist=stringdist(altName, VAR_0200)) %>% 
+  filter(dist >= 1 & dist <= 2)
 print(dupes)
 
 train <- mutate(train, fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_"))
@@ -346,8 +351,10 @@ print("Check (near) zero variance")
 # nfs <- nearZeroVar(train, saveMetrics = FALSE)
 
 # TODO switch back to nearZeroVar()
-zeroVarCols <- colnames(train)[sapply(colnames(train), function(colName) 
-{return (length(unique(train[[colName]])) < 2)})]
+zeroVarCols <- colnames(train)[sapply(colnames(train), 
+                                      function(colName) { 
+                                        return (length(unique(train[[colName]])) < 2)
+                                      })]
 cat("Removed zero variance cols:", length(zeroVarCols), fill=T)
 train <- train[,!(names(train) %in% zeroVarCols)]
 if (get("doScoring")) {
@@ -397,9 +404,9 @@ if (get("doScoring")) {
 
 # Watch some of Owen Zhang's talks on YouTube if you haven't already. They'll give you a few more ideas.
 
-trainCor <- cor( sample_n(train, min(nrow(train),10000)), method='spearman') # TODO: effect of this number?
+trainCor <- cor( sample_n(train, min(nrow(train),50000)), method='spearman') # TODO: effect of this number?
 trainCor[is.na(trainCor)] <- 0
-correlatedVars <- colnames(train)[findCorrelation(trainCor, cutoff = .98, verbose = F)]
+correlatedVars <- colnames(train)[findCorrelation(trainCor, cutoff = .99, verbose = F)]
 cat("Removed highly correlated cols:", length(correlatedVars), 
     "(of", length(names(train)), ")", fill=T)
 train <- train[,!(names(train) %in% correlatedVars)]

@@ -1,3 +1,12 @@
+library(data.table)
+library(dplyr)
+library(stringdist)
+
+train <- fread( "data/train_small.csv",header = T, sep = ",",
+                stringsAsFactors=F,integer64="double",data.table=F )
+test <- fread( "data/test_small.csv",header = T, sep = ",",
+               stringsAsFactors=F,integer64="double",data.table=F)
+
 # TODO: geo Interactions between zip and place may be interesting. For example: "zip code count per place" 
 # or "place count per zip code" may provide a measure of population density or geographic size.
 # zip VAR_0241 [zip], VAR_0242 is a 4-digit zip code add-on, VAR_0241,VAR_0200, VAR_0237 
@@ -19,6 +28,23 @@ geo <- data.frame(train$VAR_0200, # place
 # and
 #1      ZELIENOPLE             PA          16063
 #2      ZELIONOPLE             PA          16063
+#train <- train[train$VAR_0241 %in% c("42223"),]
+reviewDupes <- group_by(train, VAR_0200, VAR_0237, VAR_0241) %>% 
+  summarise(freq = n()) %>%
+  mutate(stateZip = paste(VAR_0241, VAR_0237, sep="_"),
+         fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_")) %>%
+  distinct() %>% 
+  ungroup() %>%
+  arrange(stateZip, desc(freq))
+potentialDupes <- group_by(reviewDupes, stateZip) %>% 
+  dplyr::summarise(nSameStateZip = n(),
+                   altName = first(VAR_0200), 
+                   altID = first(fullGeoID)) %>% filter(nSameStateZip > 1)
+dupes <- mutate(left_join(potentialDupes, reviewDupes, by="stateZip"), 
+                dist=stringdist(altName, VAR_0200)) %>% filter(dist >= 1 & dist <= 2)
+
+
+
 
 # Proxy for city size. 
 # Join with main by paste of VAR_0200 + VAR_0237. Drop 0200 individually.
