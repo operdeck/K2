@@ -16,6 +16,8 @@
 # X using geo/zip information from the datasets
 
 source("funcs.R")
+# BTW see also metrics in https://github.com/benhamner/Metrics
+# for this or future competitions
 
 library(xgboost)
 library(readr)
@@ -50,7 +52,11 @@ settings_small <- list(
   ,"alpha"=4
   ,"lambda"=5
   ,"random_seed"=1948
-  ,"sb_threshold"=0.001)
+  ,"sb_threshold"=0.001
+  , "valpct" = 20
+  ,"subsample" = 0.7
+  ,"colsample_bytree" = 0.5
+)
 
 settings_big <- list(
   "useSmallSample"=FALSE
@@ -63,7 +69,11 @@ settings_big <- list(
   ,"alpha"=4
   ,"lambda"=5
   ,"random_seed"=1948
-  ,"sb_threshold"=0.001)
+  ,"sb_threshold"=0.001
+  , "valpct" = 20
+  ,"subsample" = 0.7
+  ,"colsample_bytree" = 0.5
+)
 
 if (!exists("settings")) {
   settings <- settings_small
@@ -76,8 +86,8 @@ param0 <- list(
   "objective"  = "binary:logistic"
   , "eval_metric" = "auc"
   , "eta" = get("eta")
-  , "subsample" = 0.7
-  , "colsample_bytree" = 0.5
+  , "subsample" = get("subsample")
+  , "colsample_bytree" = get("colsample_bytree")
   , "min_child_weight" = get("min_child_weight")
   , "max_depth" = get("max_depth")
   , "alpha" = get("alpha")
@@ -85,7 +95,6 @@ param0 <- list(
   , "nthreads" = 3
 )
 
-version="local"
 set.seed(get("random_seed"))
 epoch <- now()
 valPercentage <- 0.20 # percentage used for early stopping / validation
@@ -106,7 +115,7 @@ if (get("useSmallSample")) {
                   stringsAsFactors=F,integer64="double",data.table=F )
   if (get("doScoring")) {
     test <- fread( "data/test-2.csv",header = T, sep = ",",
-                 stringsAsFactors=F,integer64="double",data.table=F)
+                   stringsAsFactors=F,integer64="double",data.table=F)
   }
 }
 cat("Train set:",dim(train),fill=T)
@@ -116,7 +125,7 @@ if (get("doScoring")) {
   testIDs <- test$ID
   test <- select(test, -ID)
 }
-valSetIndices <- sample(1:nrow(train), valPercentage * nrow(train)) # also used for early stopping
+valSetIndices <- sample(1:nrow(train), get("valpct") * nrow(train) / 100) # also used for early stopping
 
 ###########################
 # Data preparation
@@ -133,6 +142,8 @@ for (colName in colnames(train)[which(sapply(train, function(col) { return (!is.
   }
   #   print(createSymbin(train[[colName]],train$target)) # [-valSetIndices] !!!
 }
+
+# change "[]" in VAR_0044 to "false" 
 
 # Row-wise count of number of strange values
 print("Counting NA's per row - time consuming")
@@ -164,10 +175,13 @@ cat("Date fields: ", dateFldNames, " (", length(dateFldNames), ")", fill=T)
 processDateFlds <- function(ds, colNames) {
   result <- ds
   for (colName in colNames) {
-    asDate <- strptime(ds[[colName]], format="%d%b%y")
+    asDate <- strptime(ds[[colName]], format="%d%b%y:%H:%M:%S")
     result[[paste(colName, "wday", sep="_")]] <- wday(asDate)
     result[[paste(colName, "mday", sep="_")]] <- mday(asDate)
     result[[paste(colName, "yday", sep="_")]] <- yday(asDate)
+    result[[paste(colName, "hour", sep="_")]] <- hour(asDate)
+    result[[paste(colName, "minute", sep="_")]] <- minute(asDate)
+    result[[paste(colName, "second", sep="_")]] <- second(asDate)
     result[[paste(colName, "_today", sep="_")]] <- as.double(difftime(epoch, asDate,units='days'))
     result[[colName]] <- as.double(asDate)
     # keep absolute date in the current field, but append '_date' to it
@@ -298,13 +312,13 @@ processTitle <- function(ds) {
   result <- ds
   
   result[["title_isExecutive"]] <- match( data, 
-                        c("DIRECTOR", "PRESIDENT", "CEO", "MANAGER", "CHIEF EXECUTIVE OFFICER",
-                          "BOARD MEMBER", "CFO", "CHIEF FINANCIAL OFFICER", "MANAGING MEMBER",
-                          "VP", "CHAIRMAN", "MANAG") )
+                                          c("DIRECTOR", "PRESIDENT", "CEO", "MANAGER", "CHIEF EXECUTIVE OFFICER",
+                                            "BOARD MEMBER", "CFO", "CHIEF FINANCIAL OFFICER", "MANAGING MEMBER",
+                                            "VP", "CHAIRMAN", "MANAG") )
   result[["title_Entrepeneur"]] <- match( data, c("INDIVIDUAL - SOLE OWNER", "OWNER", "FOUNDER") )
   result[["title_Medical"]] <- match( data, c("MEDICAL ASSISTANT", "PHARMACY TECHNICIAN", "NURSE", "NURSING", 
-                              "THERAPIST", "MEDICATION", "DENTAL",
-                              "HYGIENIST", "BARBER", "MANICURIST", "PHARMACIST", "COSMETOLOGIST") )
+                                              "THERAPIST", "MEDICATION", "DENTAL",
+                                              "HYGIENIST", "BARBER", "MANICURIST", "PHARMACIST", "COSMETOLOGIST") )
   result[["title_Financial"]] <- match( data, c("TREASURER","REGISTRANT","INSURANCE","TAX","LEGAL","ACCOUNTANT"))
   result[["title_Asistant"]] <- match( data, c("SECRETARY","ASSISTANT"))
   result[["title_Officer"]] <- match( data, c("OFFICER"))
@@ -313,14 +327,14 @@ processTitle <- function(ds) {
   result[["title_Tech"]] <- match( data, c("TECH","ELECTRICIANS"))
   result[["title_RealEstate"]] <- match( data, c("REAL ESTATE","MORTGAGE"))
   result[["title_Missing"]] <- match( data, c("-1","OTHER","TITLE NOT SPECIFIED")) | is.na(data) | data == "" | data == " "
-
+  
   return (result)
 }
 
-  train <- processTitle(train)
-  if (get("doScoring")) {
-    test <- processTitle(test)
-  }
+train <- processTitle(train)
+if (get("doScoring")) {
+  test <- processTitle(test)
+}
 
 ######
 
@@ -348,6 +362,7 @@ if (get("doScoring")) {
 
 # Symbolic recoding
 
+# back to simple recode factor levels; use test set??
 for (i in 1:ncol(train)) {
   if (class(train[[i]]) == "character") {
     sb <- createSymbin(train[[i]] [-valSetIndices], y[-valSetIndices], get("sb_threshold"))
@@ -452,9 +467,9 @@ if (get("doScoring")) {
   rm("xgtrain")
   gc()
   
-#   xgtest <- xgb.DMatrix(as.matrix(test), missing = NA)
-#   preds_out <- predict(model, xgtest, ntreelimit = bst)
-
+  #   xgtest <- xgb.DMatrix(as.matrix(test), missing = NA)
+  #   preds_out <- predict(model, xgtest, ntreelimit = bst)
+  
   # Process in batches to prevent OOM on windows
   preds_out <- rep(0.0, nrow(test))
   batchSize <- 10000
@@ -462,13 +477,15 @@ if (get("doScoring")) {
     xgtest <- xgb.DMatrix(as.matrix(test[rows,]), missing = NA)
     preds_out[rows] <- predict(model, xgtest, ntreelimit = bst)
   }
-
-#   all(preds_out == preds_out2)
+  
+  #   all(preds_out == preds_out2)
   
   subm <- data.frame(testIDs, preds_out)
   colnames(subm) <- c('ID','target')
   fname <- paste("submissions/", gsub("\\.","_",
-                            paste("subm",model$bestScore,format(epoch, format="%Y%m%d_%H%M%S"), sep="_")),
+                                      paste("subm",
+                                            format(model$bestScore,digits=6, nsmall=6),
+                                            format(epoch, format="%Y%m%d_%H%M%S"), sep="_")),
                  ".csv",sep="")
   write.csv(subm, fname, row.names=FALSE)
   cat("Written submission score",model$bestScore,"to",fname,fill=T)
