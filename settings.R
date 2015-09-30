@@ -17,8 +17,8 @@ settings["lambda"] <- round(runif(1, 1, 10)) # 5
 settings["random_seed"] <- 1948 # round(runif(1, 1, 10000))
 settings["sb_threshold"] <- 0.0 # sample(seq(0.0001,0.01,by=0.0001),1) # currently not used
 settings["valpct"] <- 10
-settings["subsample"] <- 0.7
-settings["colsample_bytree"] <- 0.5
+settings["subsample"] <- 0.8
+settings["colsample_bytree"] <- 0.8
 
 # This guy is using gamma and max_delta_step
 # https://www.kaggle.com/michaelpawlus/springleaf-marketing-response/xgb-3/run/65321/code
