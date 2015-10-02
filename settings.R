@@ -6,19 +6,23 @@ settings <- list()
 # see https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
 # below settings from c999f6e... LB 0.79820 - see if that's consistent 
 settings["nrounds"] <- 4000 
-settings["print.every.n"] <- 100 
-settings["useSmallSample"] <- F
-settings["doScoring"] <- T 
-settings["eta"] <- sample(seq(0.006,0.015,by=0.001),1) # 0.0075
-settings["min_child_weight"] <- sample(c(25,100,seq(6,10)),1) # 6
-settings["max_depth"] <- 9 # round(runif(1, 8, 10)) 
-settings["alpha"] <- round(runif(1, 4, 10)) # 4
-settings["lambda"] <- round(runif(1, 1, 10)) # 5
-settings["random_seed"] <- 1948 # round(runif(1, 1, 10000))
+settings["eta"] <- sample(seq(0.001,0.015,by=0.001),1) # 0.0075
+settings["min_child_weight"] <- 6 # sample(c(25,100,seq(6,10)),1) # 6
+settings["max_depth"] <- 10 # round(runif(1, 8, 10)) 
+settings["alpha"] <- 4 # round(runif(1, 4, 10)) # 4
+settings["lambda"] <- 5 # round(runif(1, 1, 10)) # 5
 settings["sb_threshold"] <- 0.0 # sample(seq(0.0001,0.01,by=0.0001),1) # currently not used
+settings["corr_threshold"] <- 0.0 # 0..1; 0 turns it off
 settings["valpct"] <- 10
+settings["corr_pct"] <- 50 # % used to test correlation
 settings["subsample"] <- 0.8
 settings["colsample_bytree"] <- 0.8
+settings["addGeoFields"] <- F
+settings["addJobFields"] <- F
+settings["random_seed"] <- 1948 # round(runif(1, 1, 10000))
+settings["early.stop.round"] <- 100
+settings["print.every.n"] <- 100 
+settings["useSmallSample"] <- F
 
 # This guy is using gamma and max_delta_step
 # https://www.kaggle.com/michaelpawlus/springleaf-marketing-response/xgb-3/run/65321/code

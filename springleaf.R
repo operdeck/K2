@@ -1,7 +1,3 @@
-# "This is the script that produces LB 0.7985 for me with more features engineering"
-# Version 1 from https://www.kaggle.com/mrooijer/springleaf-marketing-response/xgboost-run-local/code
-
-# TODO, bring in features of predict.R:
 # X practicalities: use 'fread', rewrite wrinting of results
 # X more rounds
 # X adding of date variants
@@ -15,7 +11,9 @@
 # - deselection of linearly correlated predictors
 # X using geo/zip information from the datasets
 
-source("funcs.R")
+# currently not used (binning etc):
+# source("funcs.R")
+
 # BTW see also metrics in https://github.com/benhamner/Metrics
 # for this or future competitions
 
@@ -43,40 +41,48 @@ get <- function(settingsName) {
 
 settings_small <- list(
   "useSmallSample"=TRUE
-  ,"doScoring"=T
   ,"nrounds"=200
-  ,"print.every.n"=10
   ,"eta"=0.01
   ,"min_child_weight"=6
   ,"max_depth"=6
   ,"alpha"=4
   ,"lambda"=5
-  ,"random_seed"=1948
   ,"sb_threshold"=0.001
-  , "valpct" = 20
+  ,"corr_threshold"=0.0
+  ,"valpct" = 20
+  ,"corr_pct" = 50
   ,"subsample" = 0.7
   ,"colsample_bytree" = 0.5
+  ,"addGeoFields" = F
+  ,"addJobFields" = F
+  ,"random_seed" = 1948
+  ,"early.stop.round" = 100
+  ,"print.every.n" = 10
 )
 
 settings_big <- list(
   "useSmallSample"=FALSE
-  ,"doScoring"=T
-  ,"nrounds"=200
-  ,"print.every.n"=10
+  ,"nrounds"= 4000 # 8000
   ,"eta"=0.0075
   ,"min_child_weight"=6
   ,"max_depth"=9
   ,"alpha"=4
   ,"lambda"=5
-  ,"random_seed"=1948
   ,"sb_threshold"=0.001
-  , "valpct" = 20
+  ,"corr_threshold"=0.0
+  ,"valpct" = 10.3283734188981 # should give exact same 15000 as in original
+  ,"corr_pct" = 50
   ,"subsample" = 0.7
   ,"colsample_bytree" = 0.5
+  ,"addGeoFields" = F
+  ,"addJobFields" = F
+  ,"random_seed"=1948
+  ,"early.stop.round" = 100 # 500
+  ,"print.every.n"=10
 )
 
 if (!exists("settings")) {
-  settings <- settings_small
+  settings <- settings_big
 }
 
 # params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
@@ -97,7 +103,6 @@ param0 <- list(
 
 set.seed(get("random_seed"))
 epoch <- now()
-valPercentage <- 0.20 # percentage used for early stopping / validation
 
 ###########################
 # Data read
@@ -106,25 +111,19 @@ valPercentage <- 0.20 # percentage used for early stopping / validation
 if (get("useSmallSample")) {
   train <- fread( "data/train_small.csv",header = T, sep = ",",
                   stringsAsFactors=F,integer64="double",data.table=F )
-  if (get("doScoring")) {
-    test <- fread( "data/test_small.csv",header = T, sep = ",",
-                   stringsAsFactors=F,integer64="double",data.table=F)
-  }
+  test <- fread( "data/test_small.csv",header = T, sep = ",",
+                 stringsAsFactors=F,integer64="double",data.table=F)
 } else {
   train <- fread( "data/train-2.csv",header = T, sep = ",",
                   stringsAsFactors=F,integer64="double",data.table=F )
-  if (get("doScoring")) {
-    test <- fread( "data/test-2.csv",header = T, sep = ",",
-                   stringsAsFactors=F,integer64="double",data.table=F)
-  }
+  test <- fread( "data/test-2.csv",header = T, sep = ",",
+                 stringsAsFactors=F,integer64="double",data.table=F)
 }
 cat("Train set:",dim(train),fill=T)
 y <- train$target
 train <- select(train, -ID, -target)
-if (get("doScoring")) {
-  testIDs <- test$ID
-  test <- select(test, -ID)
-}
+testIDs <- test$ID
+test <- select(test, -ID)
 valSetIndices <- sample(1:nrow(train), get("valpct") * nrow(train) / 100) # also used for early stopping
 
 ###########################
@@ -137,13 +136,11 @@ symNAs <- c("") # left out -1
 for (colName in colnames(train)[which(sapply(train, function(col) { return (!is.numeric(col)) } ))]) {
   #   print(createSymbin(train[[colName]],train$target)) # [-valSetIndices] !!!
   train[[colName]][train[[colName]] %in% symNAs] <- NA
-  if (get("doScoring")) {
-    test[[colName]][test[[colName]] %in% symNAs] <- NA
-  }
-  #   print(createSymbin(train[[colName]],train$target)) # [-valSetIndices] !!!
+  test[[colName]][test[[colName]] %in% symNAs] <- NA
 }
 
-# change "[]" in VAR_0044 to "false" 
+# TODO: change "[]" in VAR_0044 to "false" 
+# TODO: extra grep not used/optional
 
 # Row-wise count of number of strange values
 print("Counting NA's per row - time consuming")
@@ -154,9 +151,7 @@ countNA <- function(ds)
                             sum(is.na(x) | grepl("99[6789]$",as.character(x))))))
 }
 train$numMissing <- countNA(train)
-if (get("doScoring")) {
-  test$numMissing <- countNA(test)
-}
+test$numMissing <- countNA(test)
 
 # Date field detection
 
@@ -178,12 +173,18 @@ processDateFlds <- function(ds, colNames) {
     asDate <- strptime(ds[[colName]], format="%d%b%y:%H:%M:%S")
     result[[paste(colName, "wday", sep="_")]] <- wday(asDate)
     result[[paste(colName, "mday", sep="_")]] <- mday(asDate)
-    result[[paste(colName, "yday", sep="_")]] <- yday(asDate)
-    result[[paste(colName, "hour", sep="_")]] <- hour(asDate)
-    result[[paste(colName, "minute", sep="_")]] <- minute(asDate)
-    result[[paste(colName, "second", sep="_")]] <- second(asDate)
-    result[[paste(colName, "_today", sep="_")]] <- as.double(difftime(epoch, asDate,units='days'))
-    result[[colName]] <- as.double(asDate)
+
+# TODO: switch back - this is the original code    
+    result[[paste(colName, "week", sep="_")]] <- week(asDate)
+    result[[colName]] <- as.double(difftime(epoch, asDate,units='days'))
+    
+#     result[[paste(colName, "yday", sep="_")]] <- yday(asDate)
+#     result[[paste(colName, "hour", sep="_")]] <- hour(asDate)
+#     result[[paste(colName, "minute", sep="_")]] <- minute(asDate)
+#     result[[paste(colName, "second", sep="_")]] <- second(asDate)
+#     result[[paste(colName, "_today", sep="_")]] <- as.double(difftime(epoch, asDate,units='days'))
+#     result[[colName]] <- as.double(asDate)
+
     # keep absolute date in the current field, but append '_date' to it
     names(result)[ which(names(result) == colName) ] <- paste(colName,"date",sep="_")
   }
@@ -192,9 +193,7 @@ processDateFlds <- function(ds, colNames) {
 
 if (length(dateFldNames) > 0) {
   train <- processDateFlds(train, dateFldNames)
-  if (get("doScoring")) {
-    test <- processDateFlds(test, dateFldNames)
-  }
+  test <- processDateFlds(test, dateFldNames)
 }
 
 # Create combinations of all possible date pairs.
@@ -217,125 +216,116 @@ combineDates <- function(ds, fldNames) {
 
 if (length(dateFldNames) > 0) {
   train <- combineDates(train, paste(dateFldNames,"date",sep="_"))
-  if (get("doScoring")) {
-    test <- combineDates(test, paste(dateFldNames,"date",sep="_"))
-  }
+  test <- combineDates(test, paste(dateFldNames,"date",sep="_"))
 }
 
 #
 # GEO
 #
 
-print("Adding geo info")
-
-# Geo cleansing: fix city names that have same zip/state by differ only marginally
-# Consider: similar but with city being empty (but maybe not so relevant; review 'dupes' result for this)
-cat("Unique city names before cleanup:", 
-    length(unique(train$VAR_0200)), ", dim:", dim(train), fill=T)
-reviewDupes <- group_by(train, VAR_0200, VAR_0237, VAR_0241) %>% 
-  dplyr::summarise(freq = n()) %>%
-  mutate(stateZip = paste(VAR_0241, VAR_0237, sep="_"),
-         fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_")) %>%
-  distinct() %>% 
-  ungroup() %>%
-  arrange(stateZip, desc(freq))
-potentialDupes <- group_by(reviewDupes, stateZip) %>% 
-  dplyr::summarise(n = n(), altName = first(VAR_0200), altID = first(fullGeoID)) %>% 
-  filter(n > 1)
-dupes <- mutate(left_join(potentialDupes, reviewDupes, by="stateZip"), 
-                dist=stringdist(altName, VAR_0200)) %>% 
-  filter(dist >= 1 & dist <= 2)
-print(dupes)
-
-train <- mutate(train, fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_"))
-train <- left_join(train, select(dupes, altName, fullGeoID), by="fullGeoID") %>%
-  mutate(VAR_0200 = ifelse(is.na(altName), VAR_0200, altName)) %>%
-  select(-fullGeoID, -altName)
-if (get("doScoring")) {
+if (get("addGeoFields")) {
+  
+  print("Adding geo info")
+  
+  # Geo cleansing: fix city names that have same zip/state by differ only marginally
+  # Consider: similar but with city being empty (but maybe not so relevant; review 'dupes' result for this)
+  cat("Unique city names before cleanup:", 
+      length(unique(train$VAR_0200)), ", dim:", dim(train), fill=T)
+  reviewDupes <- group_by(train, VAR_0200, VAR_0237, VAR_0241) %>% 
+    dplyr::summarise(freq = n()) %>%
+    mutate(stateZip = paste(VAR_0241, VAR_0237, sep="_"),
+           fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_")) %>%
+    distinct() %>% 
+    ungroup() %>%
+    arrange(stateZip, desc(freq))
+  potentialDupes <- group_by(reviewDupes, stateZip) %>% 
+    dplyr::summarise(n = n(), altName = first(VAR_0200), altID = first(fullGeoID)) %>% 
+    filter(n > 1)
+  dupes <- mutate(left_join(potentialDupes, reviewDupes, by="stateZip"), 
+                  dist=stringdist(altName, VAR_0200)) %>% 
+    filter(dist >= 1 & dist <= 2)
+  print(dupes)
+  
+  train <- mutate(train, fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_"))
+  train <- left_join(train, select(dupes, altName, fullGeoID), by="fullGeoID") %>%
+    mutate(VAR_0200 = ifelse(is.na(altName), VAR_0200, altName)) %>%
+    select(-fullGeoID, -altName)
   test <- mutate(test, fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_"))
   test <- left_join(test, select(dupes, altName, fullGeoID), by="fullGeoID") %>%
     mutate(VAR_0200 = ifelse(is.na(altName), VAR_0200, altName)) %>%
     select(-fullGeoID, -altName)
-}
-cat("Unique city names after cleansing:", 
-    length(unique(train$VAR_0200)), ", dim:", dim(train), fill=T)
-
-
-# Replace city by combined city-state name
-train = mutate(train, 
-               combinedCityState=paste(VAR_0200, VAR_0237, sep="_")) %>% select(-VAR_0200)
-if (get("doScoring")) {
+  cat("Unique city names after cleansing:", 
+      length(unique(train$VAR_0200)), ", dim:", dim(train), fill=T)
+  
+  # Replace city by combined city-state name
+  train = mutate(train, 
+                 combinedCityState=paste(VAR_0200, VAR_0237, sep="_")) %>% select(-VAR_0200)
   test = mutate(test, 
                 combinedCityState=paste(VAR_0200, VAR_0237, sep="_")) %>% select(-VAR_0200)
   allZipData <- rbind(select(train, combinedCityState, VAR_0241),
                       select(test, combinedCityState, VAR_0241))
-} else {
-  allZipData <- select(train, combinedCityState, VAR_0241)
-}
-# Count number of zip codes per city as a proxy for the city size:
-zipcodesByCity <- group_by(unique(allZipData), combinedCityState) %>% 
-  dplyr::summarise(proxyCitySize = n()) %>% 
-  arrange(desc(proxyCitySize))
-# Count of same zips as a proxy for population density
-countByZip <- group_by(allZipData, VAR_0241) %>%
-  dplyr::summarise(proxyPopulation = n()) %>%
-  arrange(desc(proxyPopulation))
-
-train <- left_join(train, zipcodesByCity, by="combinedCityState")
-train <- left_join(train, countByZip, by="VAR_0241")
-if (get("doScoring")) {
+  
+  # Count number of zip codes per city as a proxy for the city size:
+  zipcodesByCity <- group_by(unique(allZipData), combinedCityState) %>% 
+    dplyr::summarise(proxyCitySize = n()) %>% 
+    arrange(desc(proxyCitySize))
+  
+  # Count of same zips as a proxy for population density
+  countByZip <- group_by(allZipData, VAR_0241) %>%
+    dplyr::summarise(proxyPopulation = n()) %>%
+    arrange(desc(proxyPopulation))
+  
+  train <- left_join(train, zipcodesByCity, by="combinedCityState")
+  train <- left_join(train, countByZip, by="VAR_0241")
   test <- left_join(test, zipcodesByCity, by="combinedCityState")
   test <- left_join(test, countByZip, by="VAR_0241")
-}
-
-# Create fields for first 2 and 3 chars of zip code and do symbolic binning to bin rank
-# This will be a proxy to response behavior by location (full zip may be too granular, state too course)
-train$zip2 <- substr(train$VAR_0241, 1, 2)
-if (get("doScoring")) {
+  
+  # Create fields for first 2 and 3 chars of zip code and do symbolic binning to bin rank
+  # This will be a proxy to response behavior by location (full zip may be too granular, state too course)
+  train$zip2 <- substr(train$VAR_0241, 1, 2)
   test$zip2 <- substr(test$VAR_0241, 1, 2)
-}
-
-train$zip3 <- substr(train$VAR_0241, 1, 3)
-if (get("doScoring")) {
+  
+  train$zip3 <- substr(train$VAR_0241, 1, 3)
   test$zip3 <- substr(test$VAR_0241, 1, 3)
+  
+  rm("allZipData")
 }
-
-rm("allZipData")
 
 #
 # Group title/profession fields
 #
 
-processTitle <- function(ds) {
-  data <- ifelse(ds$VAR_0404 == "-1", ds$VAR_0493, 
-                 ifelse(ds$VAR_0493 == "-1", ds$VAR_0404, 
-                        paste(ds$VAR_0404, ds$VAR_0493)))
+if (get("addJobFields")) {
   
+  processTitle <- function(ds) {
+    data <- ifelse(ds$VAR_0404 == "-1", ds$VAR_0493, 
+                   ifelse(ds$VAR_0493 == "-1", ds$VAR_0404, 
+                          paste(ds$VAR_0404, ds$VAR_0493)))
+    
+    
+    result <- ds
+    
+    result[["title_isExecutive"]] <- match( data, 
+                                            c("DIRECTOR", "PRESIDENT", "CEO", "MANAGER", "CHIEF EXECUTIVE OFFICER",
+                                              "BOARD MEMBER", "CFO", "CHIEF FINANCIAL OFFICER", "MANAGING MEMBER",
+                                              "VP", "CHAIRMAN", "MANAG") )
+    result[["title_Entrepeneur"]] <- match( data, c("INDIVIDUAL - SOLE OWNER", "OWNER", "FOUNDER") )
+    result[["title_Medical"]] <- match( data, c("MEDICAL ASSISTANT", "PHARMACY TECHNICIAN", "NURSE", "NURSING", 
+                                                "THERAPIST", "MEDICATION", "DENTAL",
+                                                "HYGIENIST", "BARBER", "MANICURIST", "PHARMACIST", "COSMETOLOGIST") )
+    result[["title_Financial"]] <- match( data, c("TREASURER","REGISTRANT","INSURANCE","TAX","LEGAL","ACCOUNTANT"))
+    result[["title_Asistant"]] <- match( data, c("SECRETARY","ASSISTANT"))
+    result[["title_Officer"]] <- match( data, c("OFFICER"))
+    result[["title_Legal"]] <- match( data, c("ATTORNEY", "LAW", "LEGAL"))
+    result[["title_Social"]] <- match( data, c("SOCIAL","COUNSELOR"))
+    result[["title_Tech"]] <- match( data, c("TECH","ELECTRICIANS"))
+    result[["title_RealEstate"]] <- match( data, c("REAL ESTATE","MORTGAGE"))
+    result[["title_Missing"]] <- match( data, c("-1","OTHER","TITLE NOT SPECIFIED")) | is.na(data) | data == "" | data == " "
+    
+    return (result)
+  }
   
-  result <- ds
-  
-  result[["title_isExecutive"]] <- match( data, 
-                                          c("DIRECTOR", "PRESIDENT", "CEO", "MANAGER", "CHIEF EXECUTIVE OFFICER",
-                                            "BOARD MEMBER", "CFO", "CHIEF FINANCIAL OFFICER", "MANAGING MEMBER",
-                                            "VP", "CHAIRMAN", "MANAG") )
-  result[["title_Entrepeneur"]] <- match( data, c("INDIVIDUAL - SOLE OWNER", "OWNER", "FOUNDER") )
-  result[["title_Medical"]] <- match( data, c("MEDICAL ASSISTANT", "PHARMACY TECHNICIAN", "NURSE", "NURSING", 
-                                              "THERAPIST", "MEDICATION", "DENTAL",
-                                              "HYGIENIST", "BARBER", "MANICURIST", "PHARMACIST", "COSMETOLOGIST") )
-  result[["title_Financial"]] <- match( data, c("TREASURER","REGISTRANT","INSURANCE","TAX","LEGAL","ACCOUNTANT"))
-  result[["title_Asistant"]] <- match( data, c("SECRETARY","ASSISTANT"))
-  result[["title_Officer"]] <- match( data, c("OFFICER"))
-  result[["title_Legal"]] <- match( data, c("ATTORNEY", "LAW", "LEGAL"))
-  result[["title_Social"]] <- match( data, c("SOCIAL","COUNSELOR"))
-  result[["title_Tech"]] <- match( data, c("TECH","ELECTRICIANS"))
-  result[["title_RealEstate"]] <- match( data, c("REAL ESTATE","MORTGAGE"))
-  result[["title_Missing"]] <- match( data, c("-1","OTHER","TITLE NOT SPECIFIED")) | is.na(data) | data == "" | data == " "
-  
-  return (result)
-}
-
-train <- processTitle(train)
-if (get("doScoring")) {
+  train <- processTitle(train)
   test <- processTitle(test)
 }
 
@@ -361,29 +351,17 @@ zeroVarCols <- colnames(train)[sapply(colnames(train),
                                       })]
 cat("Removed zero variance cols:", length(zeroVarCols), fill=T)
 train <- train[,!(names(train) %in% zeroVarCols)]
-if (get("doScoring")) {
-  test  <- test[,!(names(test) %in% zeroVarCols)]
-}
+test  <- test[,!(names(test) %in% zeroVarCols)]
 
 # Symbolic recoding
 
-# back to simple recode factor levels; use test set??
+# TODO: use "sb_threshold" if not 0 to do real sym binning
+
 for (i in 1:ncol(train)) {
   if (class(train[[i]]) == "character") {
-    #sb <- createSymbin(train[[i]] [-valSetIndices], y[-valSetIndices], get("sb_threshold"))
-    #train[[i]] <- applySymbinRank(sb, train[[i]])
-    setnames(train, i, paste(names(train)[i], "sym", sep="_"))
-    if (get("doScoring")) {
-      u <- unique(c(train[[i]], test[[i]]))
-    } else {
-      u <- unique(c(train[[i]]))
-    }
-    train[[i]] <- as.integer(factor(train[[i]], levels=u)) 
-    if (get("doScoring")) {
-      #test[[i]] <- applySymbinRank(sb, test[[i]])
-      setnames(test, i, paste(names(test)[i], "sym", sep="_"))
-      test[[i]] <- as.integer(factor(test[[i]], levels=u)) 
-    }
+    tmp= as.numeric(as.factor(c(train[[i]], test[[i]])))
+    train[[i]]<- head(tmp, nrow(train))
+    test[[i]]<- tail(tmp, nrow(test))
   }
 }
 
@@ -396,9 +374,7 @@ for (i in 1:ncol(train)) {
 # https://www.kaggle.com/raddar/springleaf-marketing-response/removing-irrelevant-vars/code
 
 train[is.na(train)] <- -98765
-if (get("doScoring")) {
-  test[is.na(test)] <- -98765
-}
+test[is.na(test)] <- -98765
 
 ###########################
 # Highly correlated vars
@@ -408,17 +384,17 @@ if (get("doScoring")) {
 
 # Watch some of Owen Zhang's talks on YouTube if you haven't already. They'll give you a few more ideas.
 
-trainCor <- cor( sample_n(train, min(nrow(train),50000)), method='spearman') # TODO: effect of this number?
-trainCor[is.na(trainCor)] <- 0
-correlatedVars <- colnames(train)[findCorrelation(trainCor, cutoff = .99, verbose = F)]
-cat("Removed highly correlated cols:", length(correlatedVars), 
-    "(of", length(names(train)), ")", fill=T)
-train <- train[,!(names(train) %in% correlatedVars)]
-if (get("doScoring")) {
+if (get("corr_threshold") != 0.0) {
+  corSampleN <- nrow(train)*get("corr_pct")/100.0
+  trainCor <- cor( sample_n(train, corSampleN, method='spearman'))
+  trainCor[is.na(trainCor)] <- 0
+  correlatedVars <- colnames(train)[findCorrelation(trainCor, cutoff = get("corr_threshold"), verbose = F)]
+  cat("Removed highly correlated cols:", length(correlatedVars), 
+      "(of", length(names(train)), ")", fill=T)
+  train <- train[,!(names(train) %in% correlatedVars)]
   test  <- test[,!(names(test) %in% correlatedVars)]
 }
-
-cat("Dim train:",dim(train), fill=T)
+cat("Dim train begore model building:",dim(train), fill=T)
 
 ###########################
 # Model building
@@ -442,7 +418,7 @@ model = xgb.train(
   nrounds = get("nrounds")
   , params = param0
   , data = xgtrain
-  , early.stop.round = 100
+  , early.stop.round = get("early.stop.round")
   , watchlist = watchlist
   , print.every.n = get("print.every.n")
 )
@@ -461,17 +437,13 @@ cat("AUC dev:", devPerf, fill=T)
 # feature importance
 importance_mx <- xgb.importance(names(train), model=model)
 print( xgb.plot.importance(head(importance_mx,50) )) 
-if (F) {
-  # dump for use in e.g. small dataset creator
-  write.table(importance_mx, "./importance_mx.csv", row.names=FALSE, sep=";", dec=",")
-  print( paste( head(importance_mx[['Feature']], 100), collapse='","') )
-}
 
 ###########################
 # Score test set and write out
 ###########################
 
-if (get("doScoring")) {
+doScoring <- !get("useSmallSample")
+if (doScoring) {
   
   cat("Scoring test set.",fill=T)
   #rm("train")
