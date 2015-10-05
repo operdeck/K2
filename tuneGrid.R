@@ -24,8 +24,12 @@ for (r in 1:100) {
   
   if(file.exists("submissions/tuneResults.csv")) {
     # Try use fread instead - things are now all strings, it seems. write w/o quotes.
+    print("Tune results dim before and after unique")
     tuneResults <- read.csv2("submissions/tuneResults.csv", stringsAsFactors=F)
-
+    print(dim(tuneResults))
+    tuneResults <- unique(tuneResults)
+    print(dim(tuneResults))
+    
     # merge in LB score from files
     isValidSplit <- function(x) { return (length(x) == 8 && x[4] == "LB") }
     scoresLB <- sapply(strsplit(list.files("submissions","subm_.*"), "_|[.]"), 
