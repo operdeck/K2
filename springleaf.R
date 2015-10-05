@@ -1,13 +1,17 @@
-# X practicalities: use 'fread', rewrite wrinting of results
+# Main code for Kaggle Springleaf competition.
+# Use standalone via one of the settings lists, or drive from tuneGrid to vary tuning params
+
+# Ideas:
 # X more rounds
 # X adding of date variants
 # X adding of 'countNA' feature
+# - add Ivar's version of this
 # X handling of symbolics with -1 fields
 # X add profession fields (grouped) [NB: iffy, can be improved]
 # X symbolic binning for 'character' columns
 # - numeric binning
 # - univariate selection
-# x deselection of correlated predictors
+# X-X deselection of correlated predictors
 # - deselection of linearly correlated predictors
 # X using geo/zip information from the datasets
 
@@ -41,28 +45,7 @@ get <- function(settingsName) {
 
 settings_small <- list(
   "useSmallSample"=TRUE
-  ,"nrounds"=200
-  ,"eta"=0.01
-  ,"min_child_weight"=6
-  ,"max_depth"=6
-  ,"alpha"=4
-  ,"lambda"=5
-  ,"sb_threshold"=0.001
-  ,"corr_threshold"=0.0
-  ,"valpct" = 20
-  ,"corr_pct" = 50
-  ,"subsample" = 0.7
-  ,"colsample_bytree" = 0.5
-  ,"addGeoFields" = F
-  ,"addJobFields" = F
-  ,"random_seed" = 1948
-  ,"early.stop.round" = 100
-  ,"print.every.n" = 10
-)
-
-settings_big <- list(
-  "useSmallSample"=FALSE
-  ,"nrounds"= 4000 # 8000
+  ,"nrounds"= 100 #8000
   ,"eta"=0.0075
   ,"min_child_weight"=6
   ,"max_depth"=9
@@ -70,7 +53,7 @@ settings_big <- list(
   ,"lambda"=5
   ,"sb_threshold"=0.001
   ,"corr_threshold"=0.0
-  ,"valpct" = 10.3283734188981 # should give exact same 15000 as in original
+  ,"valpct" = 16.66667 # should give 5000 rows
   ,"corr_pct" = 50
   ,"subsample" = 0.7
   ,"colsample_bytree" = 0.5
@@ -81,13 +64,35 @@ settings_big <- list(
   ,"print.every.n"=10
 )
 
+settings_big <- list(
+  "useSmallSample"=F
+  ,"nrounds"= 8000
+  ,"eta"=0.0075
+  ,"min_child_weight"=6
+  ,"max_depth"=9
+  ,"alpha"=4
+  ,"lambda"=5
+  ,"sb_threshold"=0.0 # 0.001
+  ,"corr_threshold"=0.0
+#   ,"valpct" = 10.32837 # should give 15000 rows
+  ,"valpct" = 3.44279 # should give 5000 rows
+  ,"corr_pct" = 50
+  ,"subsample" = 1 # 0.7 # <-- what about these...
+  ,"colsample_bytree" = 1 # 0.5
+  ,"addGeoFields" = F
+  ,"addJobFields" = F
+  ,"random_seed"=1948
+  ,"early.stop.round" = 1000 # 500
+  ,"print.every.n"=10
+)
+
 if (!exists("settings")) {
   settings <- settings_big
 }
 
 # params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
 
-param0 <- list(
+xgbParams <- list(
   # general , non specific params - just guessing
   "objective"  = "binary:logistic"
   , "eval_metric" = "auc"
@@ -124,7 +129,9 @@ y <- train$target
 train <- select(train, -ID, -target)
 testIDs <- test$ID
 test <- select(test, -ID)
-valSetIndices <- sample(1:nrow(train), get("valpct") * nrow(train) / 100) # also used for early stopping
+valCnt <- round(get("valpct") * nrow(train) / 100)
+cat("Validation",get("valpct"),"%, ",valCnt,"rows",fill=T)
+valSetIndices <- sample(1:nrow(train), valCnt) # also used for early stopping
 
 ###########################
 # Data preparation
@@ -134,7 +141,6 @@ valSetIndices <- sample(1:nrow(train), get("valpct") * nrow(train) / 100) # also
 # (should influence NA row count below)
 symNAs <- c("") # left out -1
 for (colName in colnames(train)[which(sapply(train, function(col) { return (!is.numeric(col)) } ))]) {
-  #   print(createSymbin(train[[colName]],train$target)) # [-valSetIndices] !!!
   train[[colName]][train[[colName]] %in% symNAs] <- NA
   test[[colName]][test[[colName]] %in% symNAs] <- NA
 }
@@ -143,6 +149,7 @@ for (colName in colnames(train)[which(sapply(train, function(col) { return (!is.
 # TODO: extra grep not used/optional
 
 # Row-wise count of number of strange values
+# TODO: drop grepping for 99 etc but use Ivar's function also
 print("Counting NA's per row - time consuming")
 countNA <- function(ds) 
 {
@@ -150,8 +157,22 @@ countNA <- function(ds)
                           function(x) 
                             sum(is.na(x) | grepl("99[6789]$",as.character(x))))))
 }
-train$numMissing <- countNA(train)
-test$numMissing <- countNA(test)
+train$xtraNumNAs1 <- countNA(train)
+test$xtraNumNAs1 <- countNA(test)
+cat("Xtra num NAs 1 min/Q1/median/mean/Q3/max:",summary(train$xtraNumNAs1),"unique:",length(unique(train$xtraNumNAs1)),fill=T)
+
+countNACombos <- function(ds) {
+  naCount <- rep(0, nrow(ds))
+  for (i in 1:ncol(ds)) {
+    naRows <- which(is.na(ds[[i]]))
+    naCount[naRows] <- naCount[naRows] + i + runif(1) # use a random number for a unique weight of every column
+    # adding 'i' would perhaps localize the clusters somewhat
+  }
+  return(naCount)
+}
+train$xtraNumNAs2 <- countNACombos(train) 
+test$xtraNumNAs2 <- countNACombos(test) 
+cat("Xtra num NAs 2 min/Q1/median/mean/Q3/max:",summary(train$xtraNumNAs2),"unique:",length(unique(train$xtraNumNAs2)),fill=T)
 
 # Date field detection
 
@@ -175,15 +196,15 @@ processDateFlds <- function(ds, colNames) {
     result[[paste(colName, "mday", sep="_")]] <- mday(asDate)
 
 # TODO: switch back - this is the original code    
-    result[[paste(colName, "week", sep="_")]] <- week(asDate)
-    result[[colName]] <- as.double(difftime(epoch, asDate,units='days'))
+#     result[[paste(colName, "week", sep="_")]] <- week(asDate)
+#     result[[colName]] <- as.double(difftime(epoch, asDate,units='days'))
     
-#     result[[paste(colName, "yday", sep="_")]] <- yday(asDate)
-#     result[[paste(colName, "hour", sep="_")]] <- hour(asDate)
-#     result[[paste(colName, "minute", sep="_")]] <- minute(asDate)
-#     result[[paste(colName, "second", sep="_")]] <- second(asDate)
-#     result[[paste(colName, "_today", sep="_")]] <- as.double(difftime(epoch, asDate,units='days'))
-#     result[[colName]] <- as.double(asDate)
+    result[[paste(colName, "yday", sep="_")]] <- yday(asDate)
+    result[[paste(colName, "hour", sep="_")]] <- hour(asDate)
+    result[[paste(colName, "minute", sep="_")]] <- minute(asDate)
+    result[[paste(colName, "second", sep="_")]] <- second(asDate)
+    result[[paste(colName, "_today", sep="_")]] <- as.double(difftime(epoch, asDate,units='days'))
+    result[[colName]] <- as.double(asDate)
 
     # keep absolute date in the current field, but append '_date' to it
     names(result)[ which(names(result) == colName) ] <- paste(colName,"date",sep="_")
@@ -394,7 +415,8 @@ if (get("corr_threshold") != 0.0) {
   train <- train[,!(names(train) %in% correlatedVars)]
   test  <- test[,!(names(test) %in% correlatedVars)]
 }
-cat("Dim train begore model building:",dim(train), fill=T)
+cat("Dimensions of final train set:",dim(train), fill=T)
+cat("Dimensions of final test set:",dim(test), fill=T)
 
 ###########################
 # Model building
@@ -405,7 +427,7 @@ xgval = xgb.DMatrix(as.matrix(train[valSetIndices,]), label = y[valSetIndices], 
 gc()
 
 # history <- xgb.cv(  nrounds = get("nrounds")
-#                     , params = param0
+#                     , params = xgbParams
 #                     , data = xgtrain
 #                     , early.stop.round = 100
 #                     , nfold = 5
@@ -416,7 +438,7 @@ gc()
 watchlist <- list('val' = xgval, 'dev' = xgtrain)
 model = xgb.train(
   nrounds = get("nrounds")
-  , params = param0
+  , params = xgbParams
   , data = xgtrain
   , early.stop.round = get("early.stop.round")
   , watchlist = watchlist
