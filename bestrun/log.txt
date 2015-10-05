@@ -1,0 +1,133 @@
+Tuning parameters (round 9 ):
+[1] "nrounds:8000, eta:0.0065, min_child_weight:6, max_depth:10, alpha:4, lambda:5, sb_threshold:0, corr_threshold:0, valpct:5, corr_pct:50, subsample:0.8, colsample_bytree:0.8, addGeoFields:TRUE, addJobFields:FALSE, random_seed:1948, early.stop.round:500, print.every.n:100, useSmallSample:FALSE"
+Read 145231 rows and 1934 (of 1934) columns from 0.899 GB file in 00:00:50
+Read 145232 rows and 1933 (of 1933) columns from 0.899 GB file in 00:00:33
+Train set: 145231 1934
+[1] "Counting NA's per row - time consuming"
+Date fields:  VAR_0073 VAR_0075 VAR_0156 VAR_0157 VAR_0158 VAR_0159 VAR_0166 VAR_0167 VAR_0168 VAR_0169 
+VAR_0176 VAR_0177 VAR_0178 VAR_0179 VAR_0204 VAR_0217  ( 16 )
+[1] "Adding geo info"
+Unique city names before cleanup: 12387 , dim: 145231 2101
+Source: local data frame [1,619 x 10]
+
+   stateZip     n             altName                        altID           VAR_0200 VAR_0237 VAR_0241
+      (chr) (int)               (chr)                        (chr)              (chr)    (chr)    (int)
+1  11003_NY     2              ELMONT              ELMONT_11003_NY             ELMONY       NY    11003
+2  11418_NY     2       RICHMOND HILL       RICHMOND HILL_11418_NY       RICHMONDHILL       NY    11418
+3  11706_NY     2            BAYSHORE            BAYSHORE_11706_NY          BAY SHORE       NY    11706
+4  11729_NY     2           DEER PARK           DEER PARK_11729_NY          DEER PARL       NY    11729
+5  11738_NY     2        FARMINGVILLE        FARMINGVILLE_11738_NY        FARMINGVILE       NY    11738
+6  11742_NY     3          HOLTSCILLE          HOLTSCILLE_11742_NY         HOLTSVILLE       NY    11742
+7  11746_NY     2 HUNTINGTION STATION HUNTINGTION STATION_11746_NY HUNTINGTON STATION       NY    11746
+8  11756_NY     2           LEVITTOWN           LEVITTOWN_11756_NY           LEVITOWN       NY    11756
+9  11768_NY     2          NORTH PORT          NORTH PORT_11768_NY          NORTHPORT       NY    11768
+10 12084_NY     2         GUILDERLAND         GUILDERLAND_12084_NY        GUINDERLAND       NY    12084
+..      ...   ...                 ...                          ...                ...      ...      ...
+Variables not shown: freq (int), fullGeoID (chr), dist (dbl)
+Unique city names after cleansing: 10955 , dim: 145231 2101
+[1] "Check (near) zero variance"
+Removed zero variance cols: 5
+Dim train begore model building: 145231 2100
+[0]	val-auc:0.723730	dev-auc:0.752774
+[100]	val-auc:0.764209	dev-auc:0.814460
+[200]	val-auc:0.769947	dev-auc:0.833024
+[300]	val-auc:0.775296	dev-auc:0.851187
+[400]	val-auc:0.780120	dev-auc:0.868297
+[500]	val-auc:0.783659	dev-auc:0.883395
+[600]	val-auc:0.786028	dev-auc:0.896756
+[700]	val-auc:0.787931	dev-auc:0.907977
+[800]	val-auc:0.789632	dev-auc:0.916677
+[900]	val-auc:0.791058	dev-auc:0.923900
+[1000]	val-auc:0.792103	dev-auc:0.930343
+[1100]	val-auc:0.793054	dev-auc:0.936246
+[1200]	val-auc:0.793976	dev-auc:0.941656
+[1300]	val-auc:0.794745	dev-auc:0.946635
+[1400]	val-auc:0.795220	dev-auc:0.951244
+[1500]	val-auc:0.795771	dev-auc:0.955579
+[1600]	val-auc:0.796395	dev-auc:0.959517
+[1700]	val-auc:0.796857	dev-auc:0.962973
+[1800]	val-auc:0.797166	dev-auc:0.966331
+[1900]	val-auc:0.797486	dev-auc:0.969233
+[2000]	val-auc:0.797770	dev-auc:0.972049
+[2100]	val-auc:0.798069	dev-auc:0.974704
+[2200]	val-auc:0.798489	dev-auc:0.977181
+[2300]	val-auc:0.798700	dev-auc:0.979341
+[2400]	val-auc:0.799109	dev-auc:0.981304
+[2500]	val-auc:0.799233	dev-auc:0.983195
+[2600]	val-auc:0.799376	dev-auc:0.984918
+[2700]	val-auc:0.799555	dev-auc:0.986506
+[2800]	val-auc:0.799736	dev-auc:0.988026
+[2900]	val-auc:0.800004	dev-auc:0.989383
+[3000]	val-auc:0.800245	dev-auc:0.990577
+[3100]	val-auc:0.800449	dev-auc:0.991633
+[3200]	val-auc:0.800472	dev-auc:0.992576
+[3300]	val-auc:0.800655	dev-auc:0.993513
+[3400]	val-auc:0.800934	dev-auc:0.994320
+[3500]	val-auc:0.801061	dev-auc:0.995046
+[3600]	val-auc:0.801119	dev-auc:0.995647
+[3700]	val-auc:0.801252	dev-auc:0.996188
+[3800]	val-auc:0.801419	dev-auc:0.996708
+[3900]	val-auc:0.801520	dev-auc:0.997132
+[4000]	val-auc:0.801606	dev-auc:0.997513
+[4100]	val-auc:0.801729	dev-auc:0.997876
+[4200]	val-auc:0.801771	dev-auc:0.998162
+[4300]	val-auc:0.801918	dev-auc:0.998424
+[4400]	val-auc:0.802047	dev-auc:0.998643
+[4500]	val-auc:0.802323	dev-auc:0.998826
+[4600]	val-auc:0.802279	dev-auc:0.998996
+[4700]	val-auc:0.802355	dev-auc:0.999151
+[4800]	val-auc:0.802424	dev-auc:0.999281
+[4900]	val-auc:0.802469	dev-auc:0.999394
+[5000]	val-auc:0.802551	dev-auc:0.999488
+[5100]	val-auc:0.802645	dev-auc:0.999569
+[5200]	val-auc:0.802642	dev-auc:0.999639
+[5300]	val-auc:0.802648	dev-auc:0.999699
+[5400]	val-auc:0.802638	dev-auc:0.999748
+[5500]	val-auc:0.802686	dev-auc:0.999786
+[5600]	val-auc:0.802694	dev-auc:0.999821
+[5700]	val-auc:0.802734	dev-auc:0.999853
+[5800]	val-auc:0.802879	dev-auc:0.999876
+[5900]	val-auc:0.802869	dev-auc:0.999897
+[6000]	val-auc:0.802829	dev-auc:0.999915
+[6100]	val-auc:0.802850	dev-auc:0.999930
+[6200]	val-auc:0.802925	dev-auc:0.999942
+[6300]	val-auc:0.802894	dev-auc:0.999952
+[6400]	val-auc:0.802900	dev-auc:0.999960
+[6500]	val-auc:0.802984	dev-auc:0.999967
+[6600]	val-auc:0.803015	dev-auc:0.999973
+[6700]	val-auc:0.803020	dev-auc:0.999977
+[6800]	val-auc:0.802974	dev-auc:0.999981
+[6900]	val-auc:0.802910	dev-auc:0.999984
+[7000]	val-auc:0.802957	dev-auc:0.999987
+[7100]	val-auc:0.802931	dev-auc:0.999989
+[7200]	val-auc:0.802907	dev-auc:0.999991
+Stopping. Best iteration: 6728
+Best XGB iteration: 6728
+Best XGB score: 0.803103
+Number of vars:  2100
+AUC val: 0.8031029
+AUC dev: 0.9999786
+Read 4581222 rows and 1 (of 1) columns from 0.249 GB file in 00:00:11
+Scoring test set.
+Written submission score 0.803103 to submissions/subm_0_803103_20151005_011738.csv
+Duration: 580.2109 minutes
+New results (round 9 ):
+                 when bestScore bestRound   valPerf   devPerf duration nrounds    eta min_child_weight
+1 2015-10-05 01:17:38  0.803103      6728 0.8031029 0.9999786 580.2109    8000 0.0065                6
+  max_depth alpha lambda sb_threshold corr_threshold valpct corr_pct subsample colsample_bytree
+1        10     4      5            0              0      5       50       0.8              0.8
+  addGeoFields addJobFields random_seed early.stop.round print.every.n useSmallSample
+1         TRUE        FALSE        1948              500           100          FALSE
+                             R                 OS
+1 R version 3.2.2 (2015-08-14) x86_64-w64-mingw32
+[1] "Best results:"
+                 when bestScore bestRound   valPerf   devPerf duration    eta nrounds print.every.n
+1 2015-10-05 01:17:38  0.803103      6728 0.8031029 0.9999786 580.2109 0.0065    8000           100
+  useSmallSample doScoring min_child_weight max_depth alpha lambda gamma random_seed sb_threshold
+1          FALSE        NA                6        10     4      5  <NA>        1948            0
+                             R                 OS valpct subsample colsample_bytree fileKey LB
+1 R version 3.2.2 (2015-08-14) x86_64-w64-mingw32      5       0.8              0.8    <NA> NA
+  corr_threshold corr_pct addGeoFields addJobFields early.stop.round
+1              0       50         TRUE        FALSE              500
+[1] "************Written tune results:"
+[1] 177  30

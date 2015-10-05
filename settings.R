@@ -22,7 +22,7 @@ settings["addJobFields"] <- F
 settings["random_seed"] <- 1948 # round(runif(1, 1, 10000))
 settings["early.stop.round"] <- 500
 settings["print.every.n"] <- 100 
-settings["useSmallSample"] <- T
+settings["useSmallSample"] <- F
 
 # This guy is using gamma and max_delta_step
 # https://www.kaggle.com/michaelpawlus/springleaf-marketing-response/xgb-3/run/65321/code
