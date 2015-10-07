@@ -1,5 +1,9 @@
 # Driver to find model tuning parameters
 
+if (!file.exists("submissions")){
+  dir.create(file.path(".", "submissions"))
+}
+
 for (r in 1:100) {
   cat("Tuning parameters (round", r, "):", fill=T)
   source("./settings.R")
@@ -95,14 +99,17 @@ for (r in 1:100) {
   print("Best results:")
   print(tuneResults[1,])
   
-  # only keep > .78 and the current best (just in case there's no great scores yet)
-  tuneResults <- tuneResults[unique(c(1,which(tuneResults$bestScore > 0.78))),]
+  # only keep > .79 and the current best (just in case there's no great scores yet)
+  tuneResults <- tuneResults[unique(c(1,which(tuneResults$bestScore > 0.79))),]
 
   # Plot LB vs bestScore
-  print(ggplot(filter(tuneResults, !is.na(LB), !useSmallSample), 
-               aes(x=bestScore, y=LB, colour=max_depth, size=bestRound)) + 
-          geom_point() + geom_smooth(method="loess",se=T,fullrange=T) +
-          scale_colour_gradient(low="red",high="lightgreen"))  
+  if ("LB" %in% names(tuneResults)) {
+    print(ggplot(filter(tuneResults, !is.na(LB), !useSmallSample), 
+                 aes(x=bestScore, y=LB, colour=max_depth, size=bestRound)) + 
+            geom_point() + geom_smooth(method="lm",se=T,fullrange=T) +
+            scale_colour_gradient(low="red",high="lightgreen")+
+            geom_abline(intercept = 0, slope = 1, colour="darkgrey", size=1, linetype="dashed"))  
+  }
   
   print("************Written tune results:")
   print(dim(tuneResults))
@@ -121,13 +128,4 @@ for (r in 1:100) {
     rm("settings")
   }
 }
-
-
-
-
-
-tr <- read.csv2("submissions/tuneResults.csv", stringsAsFactors=F)
-print(ggplot(filter(tr, !is.na(LB)), aes(x=bestScore, y=LB, colour=max_depth, size=bestRound)) + 
-        geom_point() + geom_smooth(method="loess",se=T,fullrange=T) +
-        scale_colour_gradient(low="red",high="lightgreen"))
 

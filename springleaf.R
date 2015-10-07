@@ -244,6 +244,8 @@ if (length(dateFldNames) > 0) {
 # GEO
 #
 
+# TODO: add test set
+
 if (get("addGeoFields")) {
   
   print("Adding geo info")
@@ -485,7 +487,9 @@ if (doScoring) {
   }
   
   #   all(preds_out == preds_out2)
-  
+  if (!file.exists("submissions")){
+    dir.create(file.path(".", "submissions"))
+  }
   subm <- data.frame(testIDs, preds_out)
   colnames(subm) <- c('ID','target')
   fname <- paste("submissions/", gsub("\\.","_",
