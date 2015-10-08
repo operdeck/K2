@@ -5,7 +5,7 @@ settings <- list()
 
 # see https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
 # below settings from c999f6e... LB 0.79820 - see if that's consistent 
-settings["nrounds"] <- 10000 
+settings["nrounds"] <- 8000 
 settings["eta"] <- sample(seq(0.0065, 0.0090, by=0.0005),1)
 settings["min_child_weight"] <- 6 # sample(c(25,100,seq(6,10)),1) # 6
 settings["max_depth"] <- sample(c(9,11),1)

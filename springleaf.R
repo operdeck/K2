@@ -5,7 +5,7 @@
 # X more rounds
 # X adding of date variants
 # X adding of 'countNA' feature
-# - add Ivar's version of this
+# X add Ivar's version of this
 # X handling of symbolics with -1 fields
 # X add profession fields (grouped) [NB: iffy, can be improved]
 # X symbolic binning for 'character' columns
@@ -14,6 +14,7 @@
 # X-X deselection of correlated predictors
 # - deselection of linearly correlated predictors
 # X using geo/zip information from the datasets
+# - report on univariate performance of all extra predictors
 
 # currently not used (binning etc):
 # source("funcs.R")
@@ -57,8 +58,8 @@ settings_small <- list(
   ,"corr_pct" = 50
   ,"subsample" = 0.7
   ,"colsample_bytree" = 0.5
-  ,"addGeoFields" = F
-  ,"addJobFields" = F
+  ,"addGeoFields" = T
+  ,"addJobFields" = T
   ,"random_seed"=1948
   ,"early.stop.round" = 100 # 500
   ,"print.every.n"=10
@@ -87,7 +88,7 @@ settings_big <- list(
 )
 
 if (!exists("settings")) {
-  settings <- settings_big
+  settings <- settings_small
 }
 
 # params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
@@ -103,7 +104,7 @@ xgbParams <- list(
   , "max_depth" = get("max_depth")
   , "alpha" = get("alpha")
   , "lambda" = get("lambda")
-  , "nthreads" = 3
+#   , "nthreads" = 3
 )
 
 set.seed(get("random_seed"))
@@ -127,6 +128,7 @@ if (get("useSmallSample")) {
 cat("Train set:",dim(train),fill=T)
 y <- train$target
 train <- select(train, -ID, -target)
+trainOriginalNames <- names(train) # will be used later, when reporting on the new fields
 testIDs <- test$ID
 test <- select(test, -ID)
 valCnt <- round(get("valpct") * nrow(train) / 100)
@@ -194,16 +196,11 @@ processDateFlds <- function(ds, colNames) {
     asDate <- strptime(ds[[colName]], format="%d%b%y:%H:%M:%S")
     result[[paste(colName, "wday", sep="_")]] <- wday(asDate)
     result[[paste(colName, "mday", sep="_")]] <- mday(asDate)
-
-# TODO: switch back - this is the original code    
-#     result[[paste(colName, "week", sep="_")]] <- week(asDate)
-#     result[[colName]] <- as.double(difftime(epoch, asDate,units='days'))
-    
     result[[paste(colName, "yday", sep="_")]] <- yday(asDate)
     result[[paste(colName, "hour", sep="_")]] <- hour(asDate)
     result[[paste(colName, "minute", sep="_")]] <- minute(asDate)
     result[[paste(colName, "second", sep="_")]] <- second(asDate)
-    result[[paste(colName, "_today", sep="_")]] <- as.double(difftime(epoch, asDate,units='days'))
+    result[[paste(colName, "till_today", sep="_")]] <- as.double(difftime(epoch, asDate,units='days'))
     result[[colName]] <- as.double(asDate)
 
     # keep absolute date in the current field, but append '_date' to it
@@ -244,8 +241,6 @@ if (length(dateFldNames) > 0) {
 # GEO
 #
 
-# TODO: add test set
-
 if (get("addGeoFields")) {
   
   print("Adding geo info")
@@ -254,7 +249,9 @@ if (get("addGeoFields")) {
   # Consider: similar but with city being empty (but maybe not so relevant; review 'dupes' result for this)
   cat("Unique city names before cleanup:", 
       length(unique(train$VAR_0200)), ", dim:", dim(train), fill=T)
-  reviewDupes <- group_by(train, VAR_0200, VAR_0237, VAR_0241) %>% 
+  bothSets <- rbind(select(train, VAR_0200, VAR_0237, VAR_0241),
+                    select(test, VAR_0200, VAR_0237, VAR_0241))
+  reviewDupes <- group_by(bothSets, VAR_0200, VAR_0237, VAR_0241) %>% 
     dplyr::summarise(freq = n()) %>%
     mutate(stateZip = paste(VAR_0241, VAR_0237, sep="_"),
            fullGeoID = paste(VAR_0200, VAR_0241, VAR_0237, sep="_")) %>%
@@ -297,6 +294,8 @@ if (get("addGeoFields")) {
   countByZip <- group_by(allZipData, VAR_0241) %>%
     dplyr::summarise(proxyPopulation = n()) %>%
     arrange(desc(proxyPopulation))
+
+  rm("allZipData")
   
   train <- left_join(train, zipcodesByCity, by="combinedCityState")
   train <- left_join(train, countByZip, by="VAR_0241")
@@ -311,7 +310,8 @@ if (get("addGeoFields")) {
   train$zip3 <- substr(train$VAR_0241, 1, 3)
   test$zip3 <- substr(test$VAR_0241, 1, 3)
   
-  rm("allZipData")
+  train$sameState <- (train$VAR_0237 == train$VAR_0274)
+  test$sameState <- (test$VAR_0237 == test$VAR_0274)
 }
 
 #
@@ -319,6 +319,15 @@ if (get("addGeoFields")) {
 #
 
 if (get("addJobFields")) {
+
+#   # Exploration code:
+#   u <- unique(c(train$VAR_0404, test$VAR_0404))
+#   jobData <- data.frame(y=y)
+#   for (v in u) {
+#     jobData[[paste("is",v,sep="_")]] <- (train$VAR_0404 == v) | (is.na(v) & is.na(train$VAR_0404))
+#   }
+#   jobCor <- cor( jobData )
+#   print(jobData)
   
   processTitle <- function(ds) {
     data <- ifelse(ds$VAR_0404 == "-1", ds$VAR_0493, 
@@ -406,10 +415,9 @@ test[is.na(test)] <- -98765
 #emove unimportant variables (https://www.kaggle.com/raddar/springleaf-marketing-response/removing-irrelevant-vars)
 
 # Watch some of Owen Zhang's talks on YouTube if you haven't already. They'll give you a few more ideas.
-
 if (get("corr_threshold") != 0.0) {
   corSampleN <- nrow(train)*get("corr_pct")/100.0
-  trainCor <- cor( sample_n(train, corSampleN, method='spearman'))
+  trainCor <- cor( sample_n(train, corSampleN), method='spearman')
   trainCor[is.na(trainCor)] <- 0
   correlatedVars <- colnames(train)[findCorrelation(trainCor, cutoff = get("corr_threshold"), verbose = F)]
   cat("Removed highly correlated cols:", length(correlatedVars), 
@@ -419,6 +427,14 @@ if (get("corr_threshold") != 0.0) {
 }
 cat("Dimensions of final train set:",dim(train), fill=T)
 cat("Dimensions of final test set:",dim(test), fill=T)
+
+newlyEngineeredFields <- setdiff(names(train), trainOriginalNames)
+print("Newly Engineered fields:")
+newFields <- data.frame(ValAUC=sapply( newlyEngineeredFields, function(v) 
+                          { return (0.5 + abs(0.5-auc(y[valSetIndices], train[[v]][valSetIndices])))}),
+                        DevAUC=sapply( newlyEngineeredFields, function(v) 
+                        { return (0.5 + abs(0.5-auc(y[-valSetIndices], train[[v]][-valSetIndices])))}))
+print(newFields)
 
 ###########################
 # Model building
@@ -461,6 +477,7 @@ cat("AUC dev:", devPerf, fill=T)
 # feature importance
 importance_mx <- xgb.importance(names(train), model=model)
 print( xgb.plot.importance(head(importance_mx,50) )) 
+ggsave("feature_importance.png")
 
 ###########################
 # Score test set and write out

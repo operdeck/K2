@@ -4,7 +4,9 @@ if (!file.exists("submissions")){
   dir.create(file.path(".", "submissions"))
 }
 
-for (r in 1:100) {
+r <- 0
+repeat {
+  r <- r + 1
   cat("Tuning parameters (round", r, "):", fill=T)
   source("./settings.R")
   
@@ -109,6 +111,7 @@ for (r in 1:100) {
             geom_point() + geom_smooth(method="lm",se=T,fullrange=T) +
             scale_colour_gradient(low="red",high="lightgreen")+
             geom_abline(intercept = 0, slope = 1, colour="darkgrey", size=1, linetype="dashed"))  
+    ggsave("scores.png")    
   }
   
   print("************Written tune results:")
