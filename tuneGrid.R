@@ -37,17 +37,20 @@ repeat {
     print(dim(tuneResults))
     
     # merge in LB score from files
-    isValidSplit <- function(x) { return (length(x) == 8 && x[4] == "LB") }
-    scoresLB <- sapply(strsplit(list.files("submissions","subm_.*"), "_|[.]"), 
-                       function(x) { return (ifelse(isValidSplit(x), as.double(paste("0.",x[5],sep="")), NA))})
-    scoresVal <- sapply(strsplit(list.files("submissions","subm_.*"), "_|[.]"), 
-                        function(x) { return (ifelse(isValidSplit(x), as.double(paste("0.",x[3],sep="")), NA))})
-    submKey <- sapply(strsplit(list.files("submissions","subm_.*"), "_|[.]"), 
-                      function(x) { return (ifelse(isValidSplit(x), paste(x[2],x[3],x[6],x[7],sep="_"), NA))})
-    lbDS <- data.frame(submKey, scoresVal, scoresLB, stringsAsFactors=F)
-    names(lbDS) <- c('fileKey','Val', 'LB')
-    lbDS <- filter(lbDS, !is.na(LB)) %>% arrange(desc(LB))
-
+    scoredFiles <- list.files("submissions","subm_.*")
+    lbDS <- NULL
+    if (length(scoredFiles) > 0) {
+      isValidSplit <- function(x) { return (length(x) == 8 && x[4] == "LB") }
+      scoresLB <- sapply(strsplit(scoredFiles, "_|[.]"), 
+                         function(x) { return (ifelse(isValidSplit(x), as.double(paste("0.",x[5],sep="")), NA))})
+      scoresVal <- sapply(strsplit(scoredFiles, "_|[.]"), 
+                          function(x) { return (ifelse(isValidSplit(x), as.double(paste("0.",x[3],sep="")), NA))})
+      submKey <- sapply(strsplit(scoredFiles, "_|[.]"), 
+                        function(x) { return (ifelse(isValidSplit(x), paste(x[2],x[3],x[6],x[7],sep="_"), NA))})
+      lbDS <- data.frame(submKey, scoresVal, scoresLB, stringsAsFactors=F)
+      names(lbDS) <- c('fileKey','Val', 'LB')
+      lbDS <- filter(lbDS, !is.na(LB)) %>% arrange(desc(LB))
+    }
     if (class(tuneResults$when) == "character") {
       tuneResults$fileKey <- gsub("\\.|\\ ","_",
                                   paste(format(tuneResults$bestScore,digits=6, nsmall=6), 
@@ -59,12 +62,16 @@ repeat {
                                   paste(format(tuneResults$bestScore,digits=6, nsmall=6),
                                         format(tuneResults$when, format="%Y%m%d_%H%M%S"), sep="_"))
     }    
-    if ("LB" %in% names(tuneResults)) {
-      joinedWithLB <- left_join(select(tuneResults, -LB), lbDS, by="fileKey")
+    if (!is.null(lbDS)) {
+      if ("LB" %in% names(tuneResults)) {
+        joinedWithLB <- left_join(select(tuneResults, -LB), lbDS, by="fileKey")
+      } else {
+        joinedWithLB <- left_join(tuneResults, lbDS, by="fileKey")
+      }
+      tuneResults$LB <- joinedWithLB$LB #ifelse(is.na(joinedWithLB$LB), 0.0, joinedWithLB$LB)
     } else {
-      joinedWithLB <- left_join(tuneResults, lbDS, by="fileKey")
+      cat("No scored files yet. Results:",dim(tuneResults),fill=T)
     }
-    tuneResults$LB <- joinedWithLB$LB #ifelse(is.na(joinedWithLB$LB), 0.0, joinedWithLB$LB)
 
     # trickery to add new empty row to tuneResults
     temprow <- matrix(c(rep.int(NA,length(tuneResults))),nrow=1,ncol=length(tuneResults))
