@@ -46,45 +46,46 @@ get <- function(settingsName) {
 
 settings_small <- list(
   "useSmallSample"=TRUE
-  ,"nrounds"= 100 #8000
+  ,"nrounds"= 200 #8000
   ,"eta"=0.0075
   ,"min_child_weight"=6
   ,"max_depth"=9
   ,"alpha"=4
   ,"lambda"=5
-  ,"sb_threshold"=0.001
-  ,"corr_threshold"=0.0
-  ,"valpct" = 16.66667 # should give 5000 rows
-  ,"corr_pct" = 50
   ,"subsample" = 0.7
   ,"colsample_bytree" = 0.5
+  ,"sb_threshold"=0 # 0.001 # Not currently used
+  ,"corr_threshold"=0.0
+  ,"corr_pct" = 50 # Percentage used to check against corr threshold. If that's 0, not used.
+  ,"cv.nfold" = 0 # 5 # n-fold CV, set to 0 to use validation set 
+  ,"valpct" = 0 # 16.66667 should give 5000 rows - not used if cv.nfold > 0, if 0 no validation
+  ,"early.stop.round" = 0  # 100 # 100 # 500
   ,"addGeoFields" = T
   ,"addJobFields" = T
   ,"random_seed"=1948
-  ,"early.stop.round" = 100 # 500
   ,"print.every.n"=10
 )
 
 settings_big <- list(
   "useSmallSample"=F
   ,"nrounds"= 8000
-  ,"eta"=0.0075
+  ,"eta"=0.0065
   ,"min_child_weight"=6
-  ,"max_depth"=9
+  ,"max_depth"=10
   ,"alpha"=4
   ,"lambda"=5
-  ,"sb_threshold"=0.0 # 0.001
-  ,"corr_threshold"=0.0
-#   ,"valpct" = 10.32837 # should give 15000 rows
-  ,"valpct" = 3.44279 # should give 5000 rows
-  ,"corr_pct" = 50
-  ,"subsample" = 1 # 0.7 # <-- what about these...
-  ,"colsample_bytree" = 1 # 0.5
-  ,"addGeoFields" = F
+  ,"subsample" = 0.8 # 0.7 # <-- what about these...
+  ,"colsample_bytree" = 0.8 # 0.5
+  ,"sb_threshold"=0 # 0.001
+  ,"corr_threshold"=0
+  ,"corr_pct" = 50 # Percentage used to check against corr threshold. If that's 0, not used.
+  ,"cv.nfold" = 0 # 5 # n-fold CV, set to 0 to use validation set 
+  ,"valpct" = 0 # 16.66667 should give 5000 rows - not used if cv.nfold > 0, if 0 no validation
+  ,"early.stop.round" = 1000
+  ,"addGeoFields" = T
   ,"addJobFields" = F
   ,"random_seed"=1948
-  ,"early.stop.round" = 1000 # 500
-  ,"print.every.n"=10
+  ,"print.every.n"=100
 )
 
 if (!exists("settings")) {
@@ -131,9 +132,19 @@ train <- select(train, -ID, -target)
 trainOriginalNames <- names(train) # will be used later, when reporting on the new fields
 testIDs <- test$ID
 test <- select(test, -ID)
-valCnt <- round(get("valpct") * nrow(train) / 100)
-cat("Validation",get("valpct"),"%, ",valCnt,"rows",fill=T)
-valSetIndices <- sample(1:nrow(train), valCnt) # also used for early stopping
+
+if (get("cv.nfold" )== 0) {
+  validationSetSize <- round(get("valpct") * nrow(train) / 100)
+  cat("Validation: ",get("valpct"),"%, ",validationSetSize,"rows",fill=T)
+  if (validationSetSize == 0) {
+    valSetIndices <- NULL
+  } else {
+    valSetIndices <- sample(1:nrow(train), validationSetSize) # also used for early stopping
+  }
+} else {
+  validationSetSize <- 0
+  cat("Validation: ",get("cv.nfold"),"-fold CV",fill=T)
+}
 
 ###########################
 # Data preparation
@@ -430,48 +441,107 @@ cat("Dimensions of final test set:",dim(test), fill=T)
 
 newlyEngineeredFields <- setdiff(names(train), trainOriginalNames)
 print("Newly Engineered fields:")
-newFields <- data.frame(ValAUC=sapply( newlyEngineeredFields, function(v) 
-                          { return (0.5 + abs(0.5-auc(y[valSetIndices], train[[v]][valSetIndices])))}),
-                        DevAUC=sapply( newlyEngineeredFields, function(v) 
-                        { return (0.5 + abs(0.5-auc(y[-valSetIndices], train[[v]][-valSetIndices])))}))
+if (validationSetSize > 0) {
+  newFields <- data.frame(ValAUC=sapply( newlyEngineeredFields, function(v) 
+  { return (0.5 + abs(0.5-auc(y[valSetIndices], train[[v]][valSetIndices])))}),
+  DevAUC=sapply( newlyEngineeredFields, function(v) 
+  { return (0.5 + abs(0.5-auc(y[-valSetIndices], train[[v]][-valSetIndices])))}))
+} else {
+  newFields <- data.frame(ValAUC=NA,
+                          DevAUC=sapply( newlyEngineeredFields, function(v) 
+                          { return (0.5 + abs(0.5-auc(y, train[[v]])))}))
+}
 print(newFields)
 
 ###########################
 # Model building
 ###########################
 
-xgtrain = xgb.DMatrix(as.matrix(train[-valSetIndices,]), label = y[-valSetIndices], missing = NA)
-xgval = xgb.DMatrix(as.matrix(train[valSetIndices,]), label = y[valSetIndices], missing = NA)
+if (validationSetSize > 0) {
+  xgtrain = xgb.DMatrix(as.matrix(train[-valSetIndices,]), label = y[-valSetIndices], missing = NA)
+  xgval = xgb.DMatrix(as.matrix(train[valSetIndices,]), label = y[valSetIndices], missing = NA)
+} else {
+  xgtrain = xgb.DMatrix(as.matrix(train), label = y, missing = NA)
+  xgval = NULL
+}
+earlyStop <- get("early.stop.round")
+if (earlyStop == 0) {
+  earlyStop <- NULL
+}
 gc()
 
-# history <- xgb.cv(  nrounds = get("nrounds")
-#                     , params = xgbParams
-#                     , data = xgtrain
-#                     , early.stop.round = 100
-#                     , nfold = 5
-#                     , print.every.n = get("print.every.n") )
-#                     
-# print(history)
+valPerf <- NA
+valStdDev <- NA
+devPerf <- NA
 
-watchlist <- list('val' = xgval, 'dev' = xgtrain)
+#
+# Optional N-Fold cross-validation
+#
+
+if (get("cv.nfold") > 0) {
+  cvResults <- xgb.cv(  nrounds = get("nrounds")
+                      , params = xgbParams
+                      , data = xgtrain
+                      , early.stop.round = earlyStop
+                      , nfold = get("cv.nfold")
+                      , print.every.n = get("print.every.n") )
+     
+  if (is.null(earlyStop)) {
+    cv.bestIndex <- which.max(cvResults$test.auc.mean)
+  } else {
+    cv.bestIndex <- nrow(cvResults)
+  }
+  
+  valPerf <- cvResults$test.auc.mean[cv.bestIndex]
+  valStdDev <- cvResults$test.auc.std[cv.bestIndex]
+  
+  print("CV validation:")
+  print(cvResults[cv.bestIndex,])
+#   print(history)
+}
+
+#
+# Actual model run
+#
+
+if (validationSetSize > 0) {
+  watchlist <- list(val = xgval, dev = xgtrain)
+} else {
+  watchlist <- list(dev = xgtrain)
+  earlyStop <- NULL
+}
+
 model = xgb.train(
   nrounds = get("nrounds")
   , params = xgbParams
   , data = xgtrain
-  , early.stop.round = get("early.stop.round")
+  , early.stop.round = earlyStop
   , watchlist = watchlist
   , print.every.n = get("print.every.n")
 )
 
-bst <- model$bestInd
+if (is.null(earlyStop)) {
+  train.bestIndex <- NA
+} else {
+  cat("Best XGB score:", model$bestScore,fill=T)
+  train.bestIndex <- model$bestInd
+}
+cat("\nBest XGB iteration:", train.bestIndex, fill=T)
 
-cat("\nBest XGB iteration:", bst, fill=T)
-cat("Best XGB score:", model$bestScore,fill=T)
-cat("Number of vars: ", length(colnames(train)), fill=T)
+if (validationSetSize > 0) {
+  if (is.na(train.bestIndex)) {
+    valPerf <- as.double(auc(y[valSetIndices], predict(model, xgval)))
+    devPerf <- as.double(auc(y[-valSetIndices], predict(model, xgtrain)))
+  } else {
+    valPerf <- as.double(auc(y[valSetIndices], predict(model, xgval, ntreelimit=train.bestIndex)))
+    devPerf <- as.double(auc(y[-valSetIndices], predict(model, xgtrain, ntreelimit=train.bestIndex)))
+  }
+} else {
+  # valPerf could be set by CV or still be NA
+  devPerf <- as.double(auc(y, predict(model, xgtrain)))
+}
 
-valPerf <- as.double(auc(y[valSetIndices], predict(model, xgval, ntreelimit=bst)))
-cat("AUC val:", valPerf, fill=T)
-devPerf <- as.double(auc(y[-valSetIndices], predict(model, xgtrain, ntreelimit=bst)))
+cat("AUC val:", valPerf, "std:", valStdDev, fill=T)
 cat("AUC dev:", devPerf, fill=T)
 
 # feature importance
@@ -482,6 +552,11 @@ ggsave("feature_importance.png")
 ###########################
 # Score test set and write out
 ###########################
+
+scoreKey <- valPerf
+if (is.na(valPerf)) {
+  scoreKey <- devPerf # validation not always available
+}
 
 doScoring <- !get("useSmallSample")
 if (doScoring) {
@@ -500,7 +575,11 @@ if (doScoring) {
   batchSize <- 10000
   for (rows in split(1:nrow(test), ceiling((1:nrow(test))/batchSize))) {
     xgtest <- xgb.DMatrix(as.matrix(test[rows,]), missing = NA)
-    preds_out[rows] <- predict(model, xgtest, ntreelimit = bst)
+    if (!is.na(train.bestIndex)) {
+      preds_out[rows] <- predict(model, xgtest, ntreelimit = train.bestIndex)
+    } else {
+      preds_out[rows] <- predict(model, xgtest)
+    }
   }
   
   #   all(preds_out == preds_out2)
@@ -509,13 +588,14 @@ if (doScoring) {
   }
   subm <- data.frame(testIDs, preds_out)
   colnames(subm) <- c('ID','target')
+  
   fname <- paste("submissions/", gsub("\\.","_",
                                       paste("subm",
-                                            format(model$bestScore,digits=6, nsmall=6),
+                                            format(scoreKey,digits=6, nsmall=6),
                                             format(epoch, format="%Y%m%d_%H%M%S"), sep="_")),
                  ".csv",sep="")
   write.csv(subm, fname, row.names=FALSE)
-  cat("Written submission score",model$bestScore,"to",fname,fill=T)
+  cat("Written submission score",scoreKey,"to",fname,fill=T)
 } else {
   print("Not scoring test set")
 }
@@ -523,12 +603,15 @@ if (doScoring) {
 duration <- as.double(difftime(now(),epoch,units='mins'))
 cat('Duration:', duration, 'minutes', fill=T )
 
-results <- list("when"=as.character(epoch),
-                "bestScore"=model$bestScore,
-                "bestRound"=model$bestInd,
-                "valPerf"=valPerf,
-                "devPerf"=devPerf,
-                "duration"=duration,
-                "settings"=settings)
+if (!is.null(earlyStop)) {
+  results <- list("when"=as.character(epoch),
+                  "bestScore"=scoreKey,
+                  "bestRound"=train.bestIndex,
+                  "valPerf"=valPerf,
+                  "valStdDev"=valStdDev,
+                  "devPerf"=devPerf,
+                  "duration"=duration,
+                  "settings"=settings)
+}
 
 rm("settings")
