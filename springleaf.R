@@ -31,6 +31,8 @@ library(pROC)
 library(caret)
 library(dplyr)
 library(stringdist)
+library(ggplot2)
+library(Ckmeans.1d.dp)
 
 ###########################
 # Settings

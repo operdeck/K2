@@ -37,7 +37,7 @@ repeat {
     print(dim(tuneResults))
     
     # merge in LB score from files
-    scoredFiles <- list.files("submissions","subm_.*")
+    scoredFiles <- list.files("submissions","subm_.*_LB_.*\\.csv") # TODO use LB..txt files too
     lbDS <- NULL
     if (length(scoredFiles) > 0) {
       isValidSplit <- function(x) { return (length(x) == 8 && x[4] == "LB") }
@@ -109,7 +109,7 @@ repeat {
   print(tuneResults[1,])
   
   # only keep > .79 and the current best (just in case there's no great scores yet)
-  tuneResults <- tuneResults[unique(c(1,which(tuneResults$bestScore > 0.79))),]
+#   tuneResults <- tuneResults[unique(c(1,which(tuneResults$bestScore > 0.79))),]
 
   # Plot LB vs bestScore
   if ("LB" %in% names(tuneResults)) {
@@ -121,8 +121,7 @@ repeat {
     ggsave("scores.png")    
   }
   
-  print("************Written tune results:")
-  print(dim(tuneResults))
+  cat("Written tune results:",dim(tuneResults),fill=T)
   
   write.csv2(tuneResults, "submissions/tuneResults.csv", row.names=F) # 'internal' format
   #format(tuneResults,digits=6, nsmall=6)
