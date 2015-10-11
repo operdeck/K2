@@ -68,7 +68,7 @@ settings_small <- list(
 
 settings_big <- list(
   "useSmallSample"=F
-  ,"nrounds"= 8000
+  ,"nrounds"= 10000
   ,"eta"=0.0065
   ,"min_child_weight"=6
   ,"max_depth"=10
@@ -89,7 +89,7 @@ settings_big <- list(
 )
 
 if (!exists("settings")) {
-  settings <- settings_small
+  settings <- settings_big
 }
 
 # params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
@@ -320,9 +320,22 @@ if (get("addGeoFields")) {
   
   train$zip3 <- substr(train$VAR_0241, 1, 3)
   test$zip3 <- substr(test$VAR_0241, 1, 3)
+
+  train$zip4 <- substr(train$VAR_0241, 1, 4)
+  test$zip4 <- substr(test$VAR_0241, 1, 4)
   
   train$sameState <- (train$VAR_0237 == train$VAR_0274)
   test$sameState <- (test$VAR_0237 == test$VAR_0274)
+  
+  # VAR_0274 is also a state. Add this combination next to the VAR_0273 - VAR_0200 we already have.
+  train$combinedCityState2 <- paste(train$VAR_0200, train$VAR_0274, sep="_")
+  test$combinedCityState2 <- paste(test$VAR_0200, test$VAR_0274, sep="_")
+
+  # First 5 of integer64 variable. See forum:
+  # 'first 5 digits of VAR_0212 look like post code' - guess: Zip-Code + Zip4 + HouseNumber
+  # 'Zip Code + Property information. Some of these properties, it seems, are listed with real estate agencies and the last digits correspond to MLS ID'
+  train$VAR_0212_5 <- substr(train$VAR_0212, 1, 5)
+  test$VAR_0212_5 <- substr(test$VAR_0212, 1, 5)
 }
 
 #
