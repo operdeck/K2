@@ -82,7 +82,7 @@ settings_big <- list(
   ,"corr_threshold"=0
   ,"corr_pct" = 50 # Percentage used to check against corr threshold. If that's 0, not used.
   ,"cv.nfold" = 0 # 5 # n-fold CV, set to 0 to use validation set 
-  ,"valpct" = 0 # 16.66667 should give 5000 rows - not used if cv.nfold > 0, if 0 no validation
+  ,"valpct" = 20 # 16.66667 should give 5000 rows - not used if cv.nfold > 0, if 0 no validation
   ,"early.stop.round" = 1000
   ,"addGeoFields" = T
   ,"addJobFields" = F
@@ -386,6 +386,29 @@ if (get("addJobFields")) {
   train <- processTitle(train)
   test <- processTitle(test)
 }
+
+#
+# Counting booleans
+#
+sumup <- function(ds, vars) {
+  s <- rep(0, nrow(ds))
+  for (var in vars) {
+    s <- s + ds[[var]]
+  }
+  return(s)
+}
+train$concatBool_1 <- sumup(train, c("VAR_0180","VAR_0181","VAR_0182"))
+test$concatBool_1  <- sumup(test,  c("VAR_0180","VAR_0181","VAR_0182"))
+train$concatBool_2 <- sumup(train, c("VAR_0383","VAR_0384"))
+test$concatBool_2  <- sumup(test,  c("VAR_0383","VAR_0384"))
+train$concatBool_3 <- sumup(train, c("VAR_0502","VAR_0503","VAR_0504","VAR_0505"))
+test$concatBool_3  <- sumup(test,  c("VAR_0502","VAR_0503","VAR_0504","VAR_0505"))
+train$concatBool_4 <- sumup(train, c("VAR_0566","VAR_0567"))
+test$concatBool_4  <- sumup(test,  c("VAR_0566","VAR_0567"))
+train$concatBool_5 <- sumup(train, c("VAR_0740","VAR_0741"))
+test$concatBool_5  <- sumup(test,  c("VAR_0740","VAR_0741"))
+train$concatBool_6 <- sumup(train, c("VAR_1162","VAR_1163","VAR_1164","VAR_1165"))
+test$concatBool_6  <- sumup(test,  c("VAR_1162","VAR_1163","VAR_1164","VAR_1165"))
 
 ######
 

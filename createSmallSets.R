@@ -24,6 +24,9 @@ keepVars <- c('VAR_0073','VAR_0075','VAR_0204','VAR_0176','VAR_1329', # these ar
               'VAR_0540','VAR_0881','VAR_0720','VAR_0003','VAR_0014', # (geo, dates, strings)
               'VAR_0200','VAR_0274','VAR_0342','VAR_0404','VAR_0493',
               'VAR_0241','VAR_0242','VAR_0237','VAR_0342',
+              "VAR_0180","VAR_0181","VAR_0182","VAR_0383","VAR_0384", # for the bool counts
+              "VAR_0502","VAR_0503","VAR_0504","VAR_0505","VAR_0566","VAR_0567",
+              "VAR_0740","VAR_0741","VAR_1162","VAR_1163","VAR_1164","VAR_1165",
               'ID', 'target',
               # below the top N from a big run
               "VAR_0070","VAR_0795","VAR_0074","VAR_0071","VAR_1329","VAR_0004","VAR_0241",
@@ -40,6 +43,12 @@ keepVars <- c('VAR_0073','VAR_0075','VAR_0204','VAR_0176','VAR_1329', # these ar
               "VAR_1750","VAR_1146","VAR_0837","VAR_0807","VAR_1150","VAR_1201","VAR_0361",
               "VAR_0863","VAR_0860","VAR_0304","VAR_1531","VAR_1512","VAR_0550","VAR_0896",
               "VAR_1358","VAR_0198","VAR_0859","VAR_0905","VAR_0293","VAR_0079","VAR_0921")
+
+
+
+
+
+
 train <- train[(names(train) %in% keepVars)]
 test  <- test[(names(test) %in% keepVars)]
 
