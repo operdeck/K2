@@ -644,15 +644,13 @@ if (doScoring) {
 duration <- as.double(difftime(now(),epoch,units='mins'))
 cat('Duration:', duration, 'minutes', fill=T )
 
-if (!is.null(earlyStop)) {
-  results <- list("when"=as.character(epoch),
-                  "bestScore"=scoreKey,
-                  "bestRound"=train.bestIndex,
-                  "valPerf"=valPerf,
-                  "valStdDev"=valStdDev,
-                  "devPerf"=devPerf,
-                  "duration"=duration,
-                  "settings"=settings)
-}
+results <- list("when"=as.character(epoch),
+                "bestScore"=scoreKey,
+                "bestRound"=train.bestIndex,
+                "valPerf"=valPerf,
+                "valStdDev"=valStdDev,
+                "devPerf"=devPerf,
+                "duration"=duration,
+                "settings"=settings)
 
 rm("settings")
