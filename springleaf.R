@@ -14,7 +14,8 @@
 # X-X deselection of correlated predictors
 # - deselection of linearly correlated predictors
 # X using geo/zip information from the datasets
-# - report on univariate performance of all extra predictors
+# X report on univariate performance of all extra predictors
+# X count series of booleans
 
 # currently not used (binning etc):
 # source("funcs.R")
@@ -82,7 +83,7 @@ settings_big <- list(
   ,"corr_threshold"=0
   ,"corr_pct" = 50 # Percentage used to check against corr threshold. If that's 0, not used.
   ,"cv.nfold" = 0 # 5 # n-fold CV, set to 0 to use validation set 
-  ,"valpct" = 20 # 16.66667 should give 5000 rows - not used if cv.nfold > 0, if 0 no validation
+  ,"valpct" = 0 # 16.66667 should give 5000 rows - not used if cv.nfold > 0, if 0 no validation
   ,"early.stop.round" = 1000
   ,"addGeoFields" = T
   ,"addJobFields" = F
@@ -390,10 +391,12 @@ if (get("addJobFields")) {
 #
 # Counting booleans
 #
+pow <- 1
 sumup <- function(ds, vars) {
   s <- rep(0, nrow(ds))
   for (var in vars) {
-    s <- s + ds[[var]]
+    s <- s + ds[[var]]^pow
+    pow <- 2*pow
   }
   return(s)
 }
