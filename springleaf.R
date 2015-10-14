@@ -23,6 +23,7 @@
 # BTW see also metrics in https://github.com/benhamner/Metrics
 # for this or future competitions
 
+library(plyr) # for Ivar's use of mapvalues
 library(xgboost)
 library(readr)
 library(data.table)
@@ -61,7 +62,7 @@ settings_small <- list(
   ,"corr_threshold"=0.0
   ,"corr_pct" = 50 # Percentage used to check against corr threshold. If that's 0, not used.
   ,"cv.nfold" = 0 # 5 # n-fold CV, set to 0 to use validation set 
-  ,"valpct" = 0 # 16.66667 should give 5000 rows - not used if cv.nfold > 0, if 0 no validation
+  ,"valpct" = 20 # 16.66667 should give 5000 rows - not used if cv.nfold > 0, if 0 no validation
   ,"early.stop.round" = 0  # 100 # 100 # 500
   ,"addGeoFields" = T
   ,"addJobFields" = T
@@ -92,7 +93,8 @@ settings_big <- list(
 )
 
 if (!exists("settings")) {
-  settings <- settings_big
+  settings <- settings_small
+#   settings <- settings_big
 }
 
 # params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
@@ -177,17 +179,20 @@ train$xtraNumNAs1 <- countNA(train)
 test$xtraNumNAs1 <- countNA(test)
 cat("Xtra num NAs 1 min/Q1/median/mean/Q3/max:",summary(train$xtraNumNAs1),"unique:",length(unique(train$xtraNumNAs1)),fill=T)
 
-countNACombos <- function(ds) {
-  naCount <- rep(0, nrow(ds))
-  for (i in 1:ncol(ds)) {
-    naRows <- which(is.na(ds[[i]]))
-    naCount[naRows] <- naCount[naRows] + i + runif(1) # use a random number for a unique weight of every column
-    # adding 'i' would perhaps localize the clusters somewhat
-  }
-  return(naCount)
+# Create a new column from NA's - from Ivar
+naCountTrain <- rep(0, nrow(train))
+naCountTest  <- rep(0, nrow(test))
+names <- names(train)
+for (i in 1:length(names)) {
+  col <- names[i]
+  rnd <- runif(1)
+  naCountTrain[is.na(train[[col]])] <- naCountTrain[is.na(train[[col]])] + i + rnd # use a random number for more differentation
+  naCountTest[is.na(test[[col]])] <- naCountTest[is.na(test[[col]])] + i + rnd
 }
-train$xtraNumNAs2 <- countNACombos(train) 
-test$xtraNumNAs2 <- countNACombos(test) 
+train <- cbind(train, naCountTrain)
+colnames(train)[ncol(train)] <- "xtraNumNAs2"
+test <- cbind(test, naCountTest)
+colnames(test)[ncol(test)] <- "xtraNumNAs2"
 cat("Xtra num NAs 2 min/Q1/median/mean/Q3/max:",summary(train$xtraNumNAs2),"unique:",length(unique(train$xtraNumNAs2)),fill=T)
 
 # Date field detection
@@ -412,6 +417,34 @@ train$concatBool_5 <- sumup(train, c("VAR_0740","VAR_0741"))
 test$concatBool_5  <- sumup(test,  c("VAR_0740","VAR_0741"))
 train$concatBool_6 <- sumup(train, c("VAR_1162","VAR_1163","VAR_1164","VAR_1165"))
 test$concatBool_6  <- sumup(test,  c("VAR_1162","VAR_1163","VAR_1164","VAR_1165"))
+
+# Combine all columns with 2 unique values (binaries) into one new column - from Ivar
+combinedTrain <- rep(0, nrow(train))
+combinedTest  <- rep(0, nrow(test))
+names <- names(train)
+count <- 0
+for (i in 1:length(names)) {
+  col <- names[i]
+  uniques <- unique(c(train[[col]], test[[col]]))
+  vals <- length(uniques)
+  if (vals == 2 && col != "target") {
+    count <- count + 1
+    t <- table(c(train[[col]], test[[col]]), useNA="ifany") # use all available data, both train and test data
+    keys <- rownames(t)
+    #freqs <- t # frequency values not used
+    vals <- c(0,1)
+    rnd <- runif(1)
+    zeroOne <- mapvalues(train[[col]], from=keys, to=vals, warn_missing = F)
+    combinedTrain <- combinedTrain + as.numeric(zeroOne)*(count + rnd) 
+    zeroOne <- mapvalues(test[[col]], from=keys, to=vals, warn_missing = F)
+    combinedTest <- combinedTest + as.numeric(zeroOne)*(count + rnd) 
+  }
+}
+cat("Number of binary variables found=",count,fill=T)
+train <- cbind(train, combinedTrain)
+colnames(train)[ncol(train)] <- "combinedBinaries"
+test <- cbind(test, combinedTest)
+colnames(test)[ncol(test)] <- "combinedBinaries"
 
 ######
 
