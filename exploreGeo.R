@@ -2,9 +2,9 @@ library(data.table)
 library(dplyr)
 library(stringdist)
 
-train <- fread( "data/train_small.csv",header = T, sep = ",",
+train <- fread( "data/train-2.csv",header = T, sep = ",",
                 stringsAsFactors=F,integer64="double",data.table=F )
-test <- fread( "data/test_small.csv",header = T, sep = ",",
+test <- fread( "data/test-2.csv",header = T, sep = ",",
                stringsAsFactors=F,integer64="double",data.table=F)
 
 # TODO: geo Interactions between zip and place may be interesting. For example: "zip code count per place" 
@@ -74,3 +74,23 @@ countByZip <- group_by(geo, train.VAR_0241) %>%
 geo$xtraZip2 <- substr(geo$train.VAR_0241, 1, 2)
 geo$xtraZip3 <- substr(geo$train.VAR_0241, 1, 3)
 
+#
+# Create data set for use elsewhere with zip, city & state
+#
+locationsUS <- data.frame(ZipCode=geo$train.VAR_0241)
+locationsUS$fullGeoID = paste(train$VAR_0200, train$VAR_0241, train$VAR_0237, sep="_")
+locationsUS <- left_join(locationsUS, select(dupes, altName, fullGeoID), by="fullGeoID") %>%
+  mutate(City = ifelse(is.na(altName), train$VAR_0200, altName)) %>%
+  select(-fullGeoID, -altName)
+locationsUS$State <- geo$train.VAR_0237
+locationsUS$Country <- "USA"
+# Count number of zip codes per city as a proxy for the city size:
+locationsUS <- mutate(locationsUS, combinedCityState = paste(City, State, sep="_"))
+zipcodesByCity <- group_by(unique(locationsUS), combinedCityState) %>% 
+  dplyr::summarise(proxyCitySize = n()) %>%
+  arrange(desc(proxyCitySize))
+locationsUS <- left_join(locationsUS, zipcodesByCity, by="combinedCityState") %>%
+  select(-combinedCityState)
+locationsUS$proxyCitySize <- locationsUS$proxyCitySize/max(locationsUS$proxyCitySize)
+write.table(locationsUS, "locationsUS.csv", row.names=F, sep=";")
+print(head(locationsUS))
