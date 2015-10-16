@@ -35,6 +35,9 @@ library(dplyr)
 library(stringdist)
 library(ggplot2)
 library(Ckmeans.1d.dp)
+library(tm)
+library(RCurl)
+library(qdap)
 
 ###########################
 # Settings
@@ -72,7 +75,7 @@ settings_small <- list(
 
 settings_big <- list(
   "useSmallSample"=F
-  ,"nrounds"= 10000
+  ,"nrounds"= 100 # 10000
   ,"eta"=0.0065
   ,"min_child_weight"=6
   ,"max_depth"=10
@@ -84,24 +87,45 @@ settings_big <- list(
   ,"corr_threshold"=0
   ,"corr_pct" = 50 # Percentage used to check against corr threshold. If that's 0, not used.
   ,"cv.nfold" = 0 # 5 # n-fold CV, set to 0 to use validation set 
-  ,"valpct" = 0 # 16.66667 should give 5000 rows - not used if cv.nfold > 0, if 0 no validation
+  ,"valpct" = 20 # 16.66667 should give 5000 rows - not used if cv.nfold > 0, if 0 no validation
   ,"early.stop.round" = 1000
   ,"addGeoFields" = T
-  ,"addJobFields" = F
+  ,"addJobFields" = T
   ,"random_seed"=1948
   ,"print.every.n"=100
 )
 
 if (!exists("settings")) {
-  settings <- settings_small
-#   settings <- settings_big
+#   settings <- settings_small
+  settings <- settings_big
 }
 
 # params doc: https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
 
+#
+# This is for some bootstrapping. 
+# Run a full session with "reg:linear", then save the scores (if satisfied) in "prevscores".
+# Then change back the settings to "reg:logistic" and make sure to turn ON inclusion of the
+# prev scores
+#
+
+# NOTE: make sure to do both consistently for same size runs!!
+
+considerPreviousScores <- F
+includePreviousScores <- T
+
+if (considerPreviousScores) {
+  if (includePreviousScores) {
+    xgbObjective <- "binary:logistic" # this has been delivering the best results so far
+  } else {
+    xgbObjective <- "reg:linear"
+  }
+} else {
+  xgbObjective <- "binary:logistic"
+}
+
 xgbParams <- list(
-  # general , non specific params - just guessing
-  "objective"  = "binary:logistic"
+  "objective"  = xgbObjective
   , "eval_metric" = "auc"
   , "eta" = get("eta")
   , "subsample" = get("subsample")
@@ -137,6 +161,31 @@ train <- select(train, -ID, -target)
 trainOriginalNames <- names(train) # will be used later, when reporting on the new fields
 testIDs <- test$ID
 test <- select(test, -ID)
+
+if (considerPreviousScores) {
+  if (includePreviousScores) {
+    if (file.exists("prevscores")) {
+      # Include previous scores - really only works for full data set
+      prev1_train <- fread("prevscores/train_xgb_linear.csv", drop=c("ID"))
+      colnames(prev1_train)[ncol(prev1_train)] <- "prev1"
+      prev1_test <- fread("prevscores/test_xgb_linear.csv", drop=c("ID"))
+      colnames(prev1_test)[ncol(prev1_test)] <- "prev1"
+        
+      if (nrow(prev1_train) == nrow(train) & nrow(prev1_test) == nrow(test)) {
+        train <- cbind(train, prev1_train)
+        test <- cbind(test, prev1_test)
+      } else {
+        print("!!!!! previous scores not same length as current datasets - skipping")
+        print(dim(train))
+        print(dim(prev1_train))
+        print(dim(test))
+        print(dim(prev1_test))
+      }
+    } else {
+      print("!!!!! previous scores not available - skipping")
+    }
+  }
+}
 
 if (get("cv.nfold" )== 0) {
   validationSetSize <- round(get("valpct") * nrow(train) / 100)
@@ -351,46 +400,40 @@ if (get("addGeoFields")) {
 #
 
 if (get("addJobFields")) {
-
-#   # Exploration code:
-#   u <- unique(c(train$VAR_0404, test$VAR_0404))
-#   jobData <- data.frame(y=y)
-#   for (v in u) {
-#     jobData[[paste("is",v,sep="_")]] <- (train$VAR_0404 == v) | (is.na(v) & is.na(train$VAR_0404))
-#   }
-#   jobCor <- cor( jobData )
-#   print(jobData)
-  
-  processTitle <- function(ds) {
-    data <- ifelse(ds$VAR_0404 == "-1", ds$VAR_0493, 
-                   ifelse(ds$VAR_0493 == "-1", ds$VAR_0404, 
-                          paste(ds$VAR_0404, ds$VAR_0493)))
-    
-    
-    result <- ds
-    
-    result[["title_isExecutive"]] <- match( data, 
-                                            c("DIRECTOR", "PRESIDENT", "CEO", "MANAGER", "CHIEF EXECUTIVE OFFICER",
-                                              "BOARD MEMBER", "CFO", "CHIEF FINANCIAL OFFICER", "MANAGING MEMBER",
-                                              "VP", "CHAIRMAN", "MANAG") )
-    result[["title_Entrepeneur"]] <- match( data, c("INDIVIDUAL - SOLE OWNER", "OWNER", "FOUNDER") )
-    result[["title_Medical"]] <- match( data, c("MEDICAL ASSISTANT", "PHARMACY TECHNICIAN", "NURSE", "NURSING", 
-                                                "THERAPIST", "MEDICATION", "DENTAL",
-                                                "HYGIENIST", "BARBER", "MANICURIST", "PHARMACIST", "COSMETOLOGIST") )
-    result[["title_Financial"]] <- match( data, c("TREASURER","REGISTRANT","INSURANCE","TAX","LEGAL","ACCOUNTANT"))
-    result[["title_Asistant"]] <- match( data, c("SECRETARY","ASSISTANT"))
-    result[["title_Officer"]] <- match( data, c("OFFICER"))
-    result[["title_Legal"]] <- match( data, c("ATTORNEY", "LAW", "LEGAL"))
-    result[["title_Social"]] <- match( data, c("SOCIAL","COUNSELOR"))
-    result[["title_Tech"]] <- match( data, c("TECH","ELECTRICIANS"))
-    result[["title_RealEstate"]] <- match( data, c("REAL ESTATE","MORTGAGE"))
-    result[["title_Missing"]] <- match( data, c("-1","OTHER","TITLE NOT SPECIFIED")) | is.na(data) | data == "" | data == " "
-    
-    return (result)
+  getTextCluster <- function ( values )
+  {
+    uniques <- unique(values)
+    uniques[is.na(uniques)] <- ""
+    string.distances <- stringdistmatrix(uniques,uniques,method = "jw")
+    is.na(string.distances) <- do.call(cbind,lapply(string.distances, is.infinite))
+    rownames(string.distances) <- uniques
+    hc <- hclust(as.dist(string.distances))
+    dfClust <- data.frame(uniques, cutree(hc, k=100))
+    names(dfClust) <- c('modelname','cluster')
+    #   plot(table(dfClust$cluster))
+    t <- table(dfClust$cluster)
+    t <- cbind(t,t/length(dfClust$cluster))
+    t <- t[order(t[,2], decreasing=TRUE),]
+    p <- data.frame(factorName=rownames(t), binCount=t[,1], percentFound=t[,2])
+    dfClust <- merge(x=dfClust, y=p, by.x = 'cluster', by.y='factorName', all.x=T)
+    dfClust <- dfClust[rev(order(dfClust$binCount)),]
+    names(dfClust) <-  c('cluster','modelname')
+    mapping <- dfClust[c('cluster','modelname')]
+    mapping$modelname <- as.character(mapping$modelname)
+    return(mapping)
   }
   
-  train <- processTitle(train)
-  test <- processTitle(test)
+  map493 <- getTextCluster(c(unique(train$VAR_0493),unique(test$VAR_0493)))
+  names(map493) <- c("VAR_0493_cluster", "VAR_0493")
+  print(summary(map493))
+  train <- left_join(train, map493)
+  test <- left_join(test, map493)
+  
+  map404 <- getTextCluster(c(unique(train$VAR_0404),unique(test$VAR_0404)))
+  names(map404) <- c("VAR_0404_cluster", "VAR_0404")
+  print(summary(map404))
+  train <- left_join(train, map404)
+  test <- left_join(test, map404)
 }
 
 #
@@ -642,25 +685,26 @@ if (doScoring) {
   gc()
   
   #   xgtest <- xgb.DMatrix(as.matrix(test), missing = NA)
-  #   preds_out <- predict(model, xgtest, ntreelimit = bst)
+  #   predictionsTest <- predict(model, xgtest, ntreelimit = bst)
   
+  print("Generating predictions on test set:")
   # Process in batches to prevent OOM on windows
-  preds_out <- rep(0.0, nrow(test))
+  predictionsTest <- rep(0.0, nrow(test))
   batchSize <- 10000
   for (rows in split(1:nrow(test), ceiling((1:nrow(test))/batchSize))) {
     xgtest <- xgb.DMatrix(as.matrix(test[rows,]), missing = NA)
     if (!is.na(train.bestIndex)) {
-      preds_out[rows] <- predict(model, xgtest, ntreelimit = train.bestIndex)
+      predictionsTest[rows] <- predict(model, xgtest, ntreelimit = train.bestIndex)
     } else {
-      preds_out[rows] <- predict(model, xgtest)
+      predictionsTest[rows] <- predict(model, xgtest)
     }
   }
   
-  #   all(preds_out == preds_out2)
+  #   all(predictionsTest == predictionsTest2)
   if (!file.exists("submissions")){
     dir.create(file.path(".", "submissions"))
   }
-  subm <- data.frame(testIDs, preds_out)
+  subm <- data.frame(testIDs, predictionsTest)
   colnames(subm) <- c('ID','target')
   
   fname <- paste("submissions/", gsub("\\.","_",
@@ -670,6 +714,28 @@ if (doScoring) {
                  ".csv",sep="")
   write.csv(subm, fname, row.names=FALSE)
   cat("Written submission score",scoreKey,"to",fname,fill=T)
+  
+  print("Generating predictions on train set:")
+  # Process in batches to prevent OOM on windows
+  predictionsTrain <- rep(0.0, nrow(train))
+  batchSize <- 10000
+  for (rows in split(1:nrow(train), ceiling((1:nrow(train))/batchSize))) {
+    xgtrain <- xgb.DMatrix(as.matrix(train[rows,]), missing = NA)
+    if (!is.na(train.bestIndex)) {
+      predictionsTrain[rows] <- predict(model, xgtrain, ntreelimit = train.bestIndex)
+    } else {
+      predictionsTrain[rows] <- predict(model, xgtrain)
+    }
+  }
+  prevDecisions <- data.frame(prevScore=predictionsTrain)
+  fname <- paste("submissions/", gsub("\\.","_",
+                                      paste("train",
+                                            format(scoreKey,digits=6, nsmall=6),
+                                            format(epoch, format="%Y%m%d_%H%M%S"), sep="_")),
+                 ".csv",sep="")
+  write.csv(prevDecisions, fname, row.names=FALSE)
+  cat("Written previous train scores",scoreKey,"to",fname,fill=T)
+  
 } else {
   print("Not scoring test set")
 }

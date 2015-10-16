@@ -12,7 +12,7 @@ settings["sb_threshold"] <- 0.0 # sample(seq(0.0001,0.01,by=0.0001),1) # current
 settings["corr_threshold"] <- 0 # 0..1; 0 turns it off
 settings["corr_pct"] <- 50 # % used to test correlation (only used if corr_threshold > 0)
 settings["cv.nfold"] <- 0 # N-fold cross validation. If > 0, val pct is not used
-settings["valpct"] <- 5 # sample(c(10.3283734188981, 10, 5), 1), if 0, no validation set in train
+settings["valpct"] <- 0 # sample(c(10.3283734188981, 10, 5), 1), if 0, no validation set in train
 settings["subsample"] <- sample(seq(0.8,1.0,by=0.1),1)
 settings["colsample_bytree"] <- sample(seq(0.8,1.0,by=0.1),1)
 settings["addGeoFields"] <- T #sample(c(T,F),1)

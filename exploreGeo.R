@@ -92,5 +92,11 @@ zipcodesByCity <- group_by(unique(locationsUS), combinedCityState) %>%
 locationsUS <- left_join(locationsUS, zipcodesByCity, by="combinedCityState") %>%
   select(-combinedCityState)
 locationsUS$proxyCitySize <- locationsUS$proxyCitySize/max(locationsUS$proxyCitySize)
+locationsUS <- group_by(locationsUS, ZipCode, City, State, Country, proxyCitySize) %>%
+  summarize(Occurences=n()) %>% ungroup() %>% 
+  mutate(Frequency = Occurences/sum(Occurences)) %>%
+  arrange(desc(Frequency)) %>%
+  select(-Occurences)
 write.table(locationsUS, "locationsUS.csv", row.names=F, sep=";")
 print(head(locationsUS))
+
