@@ -1,0 +1,411 @@
+Read 145231 rows and 1934 (of 1934) columns from 0.899 GB file in 00:00:16
+Read 145232 rows and 1933 (of 1933) columns from 0.899 GB file in 00:00:14
+Train set: 145231 1934
+Validation:  5 %,  7262 rows
+[1] "Counting NA's per row - time consuming"
+Xtra num NAs 1 min/Q1/median/mean/Q3/max: 126 290 350 362.6 423 1272 unique: 763
+Xtra num NAs 2 min/Q1/median/mean/Q3/max: 1838 4683 4890 5350 4890 141300 unique: 551
+Date fields:  VAR_0073 VAR_0075 VAR_0156 VAR_0157 VAR_0158 VAR_0159 VAR_0166 VAR_0167 
+VAR_0168 VAR_0169 VAR_0176 VAR_0177 VAR_0178 VAR_0179 VAR_0204 VAR_0217  ( 16 )
+[1] "Adding geo info"
+Unique city names before cleanup: 12387 , dim: 145231 2166
+Source: local data frame [3,103 x 10]
+
+   stateZip     n           altName                      altID            VAR_0200 VAR_0237
+      (chr) (int)             (chr)                      (chr)               (chr)    (chr)
+1  10573_NY     3      PORT CHESTER      PORT CHESTER_10573_NY         PORTCHESTER       NY
+2  10598_NY     2  YORKTOWN HEIGHTS  YORKTOWN HEIGHTS_10598_NY     YORTOWN HEIGHTS       NY
+3  11003_NY     2            ELMONT            ELMONT_11003_NY              ELMONY       NY
+4  11418_NY     2     RICHMOND HILL     RICHMOND HILL_11418_NY        RICHMONDHILL       NY
+5  11419_NY     5 SOUTH RICHMOND HI SOUTH RICHMOND HI_11419_NY SOUTH RICHMOND HILL       NY
+6  11691_NY     2      FAR ROCKAWAY      FAR ROCKAWAY_11691_NY         FARROCKAWAY       NY
+7  11706_NY     2          BAYSHORE          BAYSHORE_11706_NY           BAY SHORE       NY
+8  11717_NY     2         BRENTWOOD         BRENTWOOD_11717_NY            BRENWOOD       NY
+9  11726_NY     2          COPIAGUE          COPIAGUE_11726_NY            COPPIAGE       NY
+10 11729_NY     2         DEER PARK         DEER PARK_11729_NY           DEER PARL       NY
+..      ...   ...               ...                        ...                 ...      ...
+Variables not shown: VAR_0241 (int), freq (int), fullGeoID (chr), dist (dbl)
+Unique city names after cleansing: 10979 , dim: 145231 2166
+ VAR_0493_cluster   VAR_0493        
+ Min.   :  1.00   Length:797        
+ 1st Qu.: 17.00   Class :character  
+ Median : 38.00   Mode  :character  
+ Mean   : 41.31                     
+ 3rd Qu.: 62.00                     
+ Max.   :100.00                     
+Joining by: "VAR_0493"
+Joining by: "VAR_0493"
+ VAR_0404_cluster   VAR_0404        
+ Min.   :  1.00   Length:3144       
+ 1st Qu.: 19.00   Class :character  
+ Median : 40.00   Mode  :character  
+ Mean   : 41.97                     
+ 3rd Qu.: 62.00                     
+ Max.   :100.00                     
+Joining by: "VAR_0404"
+Joining by: "VAR_0404"
+Number of binary variables found= 113
+[1] "Check (near) zero variance"
+Removed zero variance cols: 5
+Dimensions of final train set: 145231 2178
+Dimensions of final test set: 145232 2178
+[1] "Newly Engineered fields:"
+                               ValAUC    DevAUC
+VAR_0073_date               0.6336929 0.6340282
+VAR_0075_date               0.5739718 0.5794667
+VAR_0156_date               0.5218498 0.5215071
+VAR_0157_date               0.5063329 0.5050118
+VAR_0158_date               0.5046667 0.5054329
+VAR_0159_date               0.5216850 0.5214956
+VAR_0166_date               0.5486755 0.5436882
+VAR_0167_date               0.5132029 0.5121511
+VAR_0168_date               0.5317825 0.5265473
+VAR_0169_date               0.5484900 0.5436012
+VAR_0176_date               0.5605405 0.5554593
+VAR_0177_date               0.5182975 0.5164350
+VAR_0178_date               0.5340182 0.5295046
+VAR_0179_date               0.5600998 0.5553466
+VAR_0204_date               0.5267391 0.5214019
+VAR_0217_date               0.5262428 0.5212880
+xtraNumNAs1                 0.5689450 0.5687484
+xtraNumNAs2                 0.6168469 0.6136267
+VAR_0073_wday               0.6227173 0.6233175
+VAR_0073_mday               0.6251734 0.6239283
+VAR_0073_yday               0.6231159 0.6235251
+VAR_0073_hour               0.6232388 0.6233659
+VAR_0073_minute             0.6232388 0.6233659
+VAR_0073_second             0.6232388 0.6233659
+VAR_0073_till_today         0.6127847 0.6127037
+VAR_0075_wday               0.5392254 0.5251393
+VAR_0075_mday               0.5027155 0.5055176
+VAR_0075_yday               0.5090706 0.5120100
+VAR_0075_hour               0.5000000 0.5000004
+VAR_0075_minute             0.5000000 0.5000004
+VAR_0075_second             0.5000000 0.5000004
+VAR_0075_till_today         0.5739718 0.5794675
+VAR_0156_wday               0.5216301 0.5213681
+VAR_0156_mday               0.5216637 0.5213850
+VAR_0156_yday               0.5216595 0.5213558
+VAR_0156_hour               0.5216861 0.5213771
+VAR_0156_minute             0.5216861 0.5213771
+VAR_0156_second             0.5216861 0.5213771
+VAR_0156_till_today         0.5215223 0.5212470
+VAR_0157_wday               0.5063335 0.5050082
+VAR_0157_mday               0.5063328 0.5050068
+VAR_0157_yday               0.5063356 0.5050080
+VAR_0157_hour               0.5063330 0.5050081
+VAR_0157_minute             0.5063330 0.5050081
+VAR_0157_second             0.5063330 0.5050081
+VAR_0157_till_today         0.5063331 0.5050044
+VAR_0158_wday               0.5046745 0.5054261
+VAR_0158_mday               0.5046579 0.5054170
+VAR_0158_yday               0.5046821 0.5054212
+VAR_0158_hour               0.5046697 0.5054241
+VAR_0158_minute             0.5046697 0.5054241
+VAR_0158_second             0.5046697 0.5054241
+VAR_0158_till_today         0.5046727 0.5054152
+VAR_0159_wday               0.5216500 0.5213995
+VAR_0159_mday               0.5217722 0.5213728
+VAR_0159_yday               0.5217538 0.5213561
+VAR_0159_hour               0.5216861 0.5213771
+VAR_0159_minute             0.5216861 0.5213771
+VAR_0159_second             0.5216861 0.5213771
+VAR_0159_till_today         0.5216871 0.5212586
+VAR_0166_wday               0.5477975 0.5425694
+VAR_0166_mday               0.5475953 0.5425875
+VAR_0166_yday               0.5484629 0.5425210
+VAR_0166_hour               0.5476616 0.5426275
+VAR_0166_minute             0.5476616 0.5426275
+VAR_0166_second             0.5476616 0.5426275
+VAR_0166_till_today         0.5466477 0.5415668
+VAR_0167_wday               0.5131425 0.5121186
+VAR_0167_mday               0.5131398 0.5121225
+VAR_0167_yday               0.5131755 0.5121195
+VAR_0167_hour               0.5131594 0.5121215
+VAR_0167_minute             0.5131594 0.5121215
+VAR_0167_second             0.5131594 0.5121215
+VAR_0167_till_today         0.5131160 0.5120919
+VAR_0168_wday               0.5315024 0.5261664
+VAR_0168_mday               0.5312987 0.5260829
+VAR_0168_yday               0.5314390 0.5260374
+VAR_0168_hour               0.5314885 0.5261185
+VAR_0168_minute             0.5314885 0.5261185
+VAR_0168_second             0.5314885 0.5261185
+VAR_0168_till_today         0.5311945 0.5256897
+VAR_0169_wday               0.5478813 0.5426855
+VAR_0169_mday               0.5476684 0.5426247
+VAR_0169_yday               0.5479409 0.5424804
+VAR_0169_hour               0.5476616 0.5426275
+VAR_0169_minute             0.5476616 0.5426275
+VAR_0169_second             0.5476616 0.5426275
+VAR_0169_till_today         0.5468332 0.5416538
+VAR_0176_wday               0.5588140 0.5538743
+VAR_0176_mday               0.5587543 0.5539210
+VAR_0176_yday               0.5598349 0.5538503
+VAR_0176_hour               0.5590181 0.5539925
+VAR_0176_minute             0.5590181 0.5539925
+VAR_0176_second             0.5590181 0.5539925
+VAR_0176_till_today         0.5574958 0.5525257
+VAR_0177_wday               0.5181997 0.5163824
+VAR_0177_mday               0.5181896 0.5163801
+VAR_0177_yday               0.5182522 0.5163789
+VAR_0177_hour               0.5182247 0.5163841
+VAR_0177_minute             0.5182247 0.5163841
+VAR_0177_second             0.5182247 0.5163841
+VAR_0177_till_today         0.5181519 0.5163331
+VAR_0178_wday               0.5337852 0.5291215
+VAR_0178_mday               0.5336489 0.5289776
+VAR_0178_yday               0.5339643 0.5289796
+VAR_0178_hour               0.5337929 0.5290334
+VAR_0178_minute             0.5337929 0.5290334
+VAR_0178_second             0.5337929 0.5290334
+VAR_0178_till_today         0.5335676 0.5285622
+VAR_0179_wday               0.5590445 0.5540782
+VAR_0179_mday               0.5594815 0.5540213
+VAR_0179_yday               0.5592334 0.5538045
+VAR_0179_hour               0.5590181 0.5539925
+VAR_0179_minute             0.5590181 0.5539925
+VAR_0179_second             0.5590181 0.5539925
+VAR_0179_till_today         0.5579364 0.5526384
+VAR_0204_wday               0.5203533 0.5165460
+VAR_0204_mday               0.5138475 0.5118148
+VAR_0204_yday               0.5203533 0.5165460
+VAR_0204_hour               0.5089915 0.5064223
+VAR_0204_minute             0.5087354 0.5002980
+VAR_0204_second             0.5000000 0.5000004
+VAR_0204_till_today         0.5267391 0.5214011
+VAR_0217_wday               0.5263842 0.5141139
+VAR_0217_mday               0.5083748 0.5031418
+VAR_0217_yday               0.5036379 0.5091009
+VAR_0217_hour               0.5000000 0.5000004
+VAR_0217_minute             0.5000000 0.5000004
+VAR_0217_second             0.5000000 0.5000004
+VAR_0217_till_today         0.5276501 0.5215057
+VAR_0073_date_VAR_0075_date 0.5856709 0.5915564
+VAR_0073_date_VAR_0156_date 0.5153473 0.5166353
+VAR_0073_date_VAR_0157_date 0.5028747 0.5024280
+VAR_0073_date_VAR_0158_date 0.5033784 0.5037464
+VAR_0073_date_VAR_0159_date 0.5151887 0.5142936
+VAR_0073_date_VAR_0166_date 0.5399786 0.5355675
+VAR_0073_date_VAR_0167_date 0.5087001 0.5078845
+VAR_0073_date_VAR_0168_date 0.5221303 0.5210781
+VAR_0073_date_VAR_0169_date 0.5311324 0.5299037
+VAR_0073_date_VAR_0176_date 0.5436965 0.5432380
+VAR_0073_date_VAR_0177_date 0.5101677 0.5097280
+VAR_0073_date_VAR_0178_date 0.5227388 0.5223403
+VAR_0073_date_VAR_0179_date 0.5356496 0.5338838
+VAR_0073_date_VAR_0204_date 0.6127632 0.6126883
+VAR_0073_date_VAR_0217_date 0.6106313 0.6107678
+VAR_0075_date_VAR_0156_date 0.5218227 0.5213271
+VAR_0075_date_VAR_0157_date 0.5063369 0.5050054
+VAR_0075_date_VAR_0158_date 0.5047015 0.5054213
+VAR_0075_date_VAR_0159_date 0.5217600 0.5213062
+VAR_0075_date_VAR_0166_date 0.5484329 0.5431445
+VAR_0075_date_VAR_0167_date 0.5131683 0.5121243
+VAR_0075_date_VAR_0168_date 0.5317078 0.5259751
+VAR_0075_date_VAR_0169_date 0.5476493 0.5426493
+VAR_0075_date_VAR_0176_date 0.5602634 0.5547135
+VAR_0075_date_VAR_0177_date 0.5182446 0.5163829
+VAR_0075_date_VAR_0178_date 0.5340572 0.5289128
+VAR_0075_date_VAR_0179_date 0.5589909 0.5539514
+VAR_0075_date_VAR_0204_date 0.5741922 0.5796389
+VAR_0075_date_VAR_0217_date 0.6168265 0.6138490
+VAR_0156_date_VAR_0157_date 0.5063283 0.5050059
+VAR_0156_date_VAR_0158_date 0.5046577 0.5054258
+VAR_0156_date_VAR_0159_date 0.5215639 0.5213415
+VAR_0156_date_VAR_0166_date 0.5101286 0.5038362
+VAR_0156_date_VAR_0167_date 0.5012923 0.5003327
+VAR_0156_date_VAR_0168_date 0.5013172 0.5000279
+VAR_0156_date_VAR_0169_date 0.5014397 0.5009627
+VAR_0156_date_VAR_0176_date 0.5015865 0.5071247
+VAR_0156_date_VAR_0177_date 0.5073253 0.5047133
+VAR_0156_date_VAR_0178_date 0.5046301 0.5050514
+VAR_0156_date_VAR_0179_date 0.5215643 0.5213589
+VAR_0156_date_VAR_0204_date 0.5215220 0.5212468
+VAR_0156_date_VAR_0217_date 0.5214959 0.5212368
+VAR_0157_date_VAR_0158_date 0.5001796 0.5009207
+VAR_0157_date_VAR_0159_date 0.5045668 0.5044088
+VAR_0157_date_VAR_0166_date 0.5030830 0.5021290
+VAR_0157_date_VAR_0167_date 0.5002945 0.5000471
+VAR_0157_date_VAR_0168_date 0.5008179 0.5009370
+VAR_0157_date_VAR_0169_date 0.5007285 0.5017264
+VAR_0157_date_VAR_0176_date 0.5057479 0.5048244
+VAR_0157_date_VAR_0177_date 0.5063349 0.5050082
+VAR_0157_date_VAR_0178_date 0.5005243 0.5014390
+VAR_0157_date_VAR_0179_date 0.5029828 0.5039064
+VAR_0157_date_VAR_0204_date 0.5063331 0.5050044
+VAR_0157_date_VAR_0217_date 0.5063312 0.5049919
+VAR_0158_date_VAR_0159_date 0.5016468 0.5042202
+VAR_0158_date_VAR_0166_date 0.5033896 0.5024168
+VAR_0158_date_VAR_0167_date 0.5003842 0.5002100
+VAR_0158_date_VAR_0168_date 0.5006487 0.5014091
+VAR_0158_date_VAR_0169_date 0.5011166 0.5008869
+VAR_0158_date_VAR_0176_date 0.5046626 0.5053417
+VAR_0158_date_VAR_0177_date 0.5002047 0.5009934
+VAR_0158_date_VAR_0178_date 0.5046778 0.5054233
+VAR_0158_date_VAR_0179_date 0.5020586 0.5047034
+VAR_0158_date_VAR_0204_date 0.5046726 0.5054152
+VAR_0158_date_VAR_0217_date 0.5046597 0.5054277
+VAR_0159_date_VAR_0166_date 0.5091340 0.5053372
+VAR_0159_date_VAR_0167_date 0.5007036 0.5000532
+VAR_0159_date_VAR_0168_date 0.5007659 0.5016434
+VAR_0159_date_VAR_0169_date 0.5027648 0.5009070
+VAR_0159_date_VAR_0176_date 0.5002439 0.5001753
+VAR_0159_date_VAR_0177_date 0.5055615 0.5042532
+VAR_0159_date_VAR_0178_date 0.5000100 0.5023962
+VAR_0159_date_VAR_0179_date 0.5216961 0.5214033
+VAR_0159_date_VAR_0204_date 0.5216862 0.5212583
+VAR_0159_date_VAR_0217_date 0.5216079 0.5212331
+VAR_0166_date_VAR_0167_date 0.5131542 0.5120721
+VAR_0166_date_VAR_0168_date 0.5313864 0.5257370
+VAR_0166_date_VAR_0169_date 0.5472384 0.5422415
+VAR_0166_date_VAR_0176_date 0.5468121 0.5370992
+VAR_0166_date_VAR_0177_date 0.5147675 0.5133895
+VAR_0166_date_VAR_0178_date 0.5319618 0.5256270
+VAR_0166_date_VAR_0179_date 0.5471930 0.5422065
+VAR_0166_date_VAR_0204_date 0.5466475 0.5415667
+VAR_0166_date_VAR_0217_date 0.5467997 0.5415215
+VAR_0167_date_VAR_0168_date 0.5054454 0.5031360
+VAR_0167_date_VAR_0169_date 0.5082215 0.5087362
+VAR_0167_date_VAR_0176_date 0.5131565 0.5118659
+VAR_0167_date_VAR_0177_date 0.5131690 0.5121232
+VAR_0167_date_VAR_0178_date 0.5054182 0.5031184
+VAR_0167_date_VAR_0179_date 0.5060600 0.5072143
+VAR_0167_date_VAR_0204_date 0.5131158 0.5120918
+VAR_0167_date_VAR_0217_date 0.5131064 0.5120124
+VAR_0168_date_VAR_0169_date 0.5065995 0.5058535
+VAR_0168_date_VAR_0176_date 0.5311437 0.5255687
+VAR_0168_date_VAR_0177_date 0.5053795 0.5041983
+VAR_0168_date_VAR_0178_date 0.5314488 0.5261233
+VAR_0168_date_VAR_0179_date 0.5003330 0.5003317
+VAR_0168_date_VAR_0204_date 0.5311945 0.5256894
+VAR_0168_date_VAR_0217_date 0.5313923 0.5256650
+VAR_0169_date_VAR_0176_date 0.5022756 0.5035770
+VAR_0169_date_VAR_0177_date 0.5079732 0.5112645
+VAR_0169_date_VAR_0178_date 0.5100930 0.5104882
+VAR_0169_date_VAR_0179_date 0.5477309 0.5425963
+VAR_0169_date_VAR_0204_date 0.5468359 0.5416534
+VAR_0169_date_VAR_0217_date 0.5472489 0.5416094
+VAR_0176_date_VAR_0177_date 0.5182211 0.5163223
+VAR_0176_date_VAR_0178_date 0.5335952 0.5286484
+VAR_0176_date_VAR_0179_date 0.5582249 0.5534817
+VAR_0176_date_VAR_0204_date 0.5574953 0.5525251
+VAR_0176_date_VAR_0217_date 0.5575311 0.5524522
+VAR_0177_date_VAR_0178_date 0.5053552 0.5044379
+VAR_0177_date_VAR_0179_date 0.5095416 0.5108875
+VAR_0177_date_VAR_0204_date 0.5181517 0.5163331
+VAR_0177_date_VAR_0217_date 0.5181340 0.5162577
+VAR_0178_date_VAR_0179_date 0.5005317 0.5023686
+VAR_0178_date_VAR_0204_date 0.5335671 0.5285614
+VAR_0178_date_VAR_0217_date 0.5336967 0.5285323
+VAR_0179_date_VAR_0204_date 0.5579372 0.5526366
+VAR_0179_date_VAR_0217_date 0.5581525 0.5525080
+VAR_0204_date_VAR_0217_date 0.5275773 0.5214616
+combinedCityState           0.5043918 0.5003021
+proxyCitySize               0.5099511 0.5163341
+proxyPopulation             0.5007266 0.5050332
+zip2                        0.5139878 0.5171139
+zip3                        0.5142106 0.5171552
+zip4                        0.5142152 0.5171482
+sameState                   0.5037468 0.5024702
+combinedCityState2          0.5096572 0.5098727
+VAR_0212_5                  0.5117626 0.5136702
+VAR_0493_cluster            0.5008204 0.5004897
+VAR_0404_cluster            0.5037778 0.5033309
+concatBool_1                0.5001797 0.5000604
+concatBool_2                0.5360021 0.5441783
+concatBool_3                0.6187307 0.6199674
+concatBool_4                0.5259829 0.5134778
+concatBool_5                0.5295527 0.5143362
+concatBool_6                0.5259829 0.5134651
+combinedBinaries            0.6075641 0.6115955
+[0]	val-auc:0.724247	dev-auc:0.759900
+[100]	val-auc:0.765631	dev-auc:0.833765
+[200]	val-auc:0.773012	dev-auc:0.856104
+[300]	val-auc:0.778127	dev-auc:0.875303
+[400]	val-auc:0.781861	dev-auc:0.892777
+[500]	val-auc:0.784567	dev-auc:0.908440
+[600]	val-auc:0.786929	dev-auc:0.920762
+[700]	val-auc:0.788739	dev-auc:0.930231
+[800]	val-auc:0.790506	dev-auc:0.938574
+[900]	val-auc:0.791439	dev-auc:0.945532
+[1000]	val-auc:0.792229	dev-auc:0.952181
+[1100]	val-auc:0.793059	dev-auc:0.957701
+[1200]	val-auc:0.793724	dev-auc:0.962915
+[1300]	val-auc:0.794466	dev-auc:0.967377
+[1400]	val-auc:0.794882	dev-auc:0.971386
+[1500]	val-auc:0.795230	dev-auc:0.974913
+[1600]	val-auc:0.795694	dev-auc:0.977801
+[1700]	val-auc:0.796082	dev-auc:0.980599
+[1800]	val-auc:0.796444	dev-auc:0.983071
+[1900]	val-auc:0.796905	dev-auc:0.985344
+[2000]	val-auc:0.797250	dev-auc:0.987320
+[2100]	val-auc:0.797499	dev-auc:0.989129
+[2200]	val-auc:0.797917	dev-auc:0.990576
+[2300]	val-auc:0.798053	dev-auc:0.991908
+[2400]	val-auc:0.798249	dev-auc:0.993068
+[2500]	val-auc:0.798400	dev-auc:0.994119
+[2600]	val-auc:0.798616	dev-auc:0.994980
+[2700]	val-auc:0.798777	dev-auc:0.995780
+[2800]	val-auc:0.798885	dev-auc:0.996431
+[2900]	val-auc:0.799035	dev-auc:0.996999
+[3000]	val-auc:0.799201	dev-auc:0.997468
+[3100]	val-auc:0.799355	dev-auc:0.997887
+[3200]	val-auc:0.799532	dev-auc:0.998244
+[3300]	val-auc:0.799590	dev-auc:0.998538
+[3400]	val-auc:0.799793	dev-auc:0.998789
+[3500]	val-auc:0.799819	dev-auc:0.999006
+[3600]	val-auc:0.799975	dev-auc:0.999191
+[3700]	val-auc:0.800260	dev-auc:0.999342
+[3800]	val-auc:0.800225	dev-auc:0.999456
+[3900]	val-auc:0.800332	dev-auc:0.999560
+[4000]	val-auc:0.800502	dev-auc:0.999641
+[4100]	val-auc:0.800532	dev-auc:0.999712
+[4200]	val-auc:0.800635	dev-auc:0.999768
+[4300]	val-auc:0.800723	dev-auc:0.999814
+[4400]	val-auc:0.800794	dev-auc:0.999849
+[4500]	val-auc:0.800893	dev-auc:0.999879
+[4600]	val-auc:0.800980	dev-auc:0.999905
+[4700]	val-auc:0.801066	dev-auc:0.999924
+[4800]	val-auc:0.801107	dev-auc:0.999940
+[4900]	val-auc:0.801160	dev-auc:0.999952
+[5000]	val-auc:0.801245	dev-auc:0.999962
+[5100]	val-auc:0.801260	dev-auc:0.999970
+[5200]	val-auc:0.801312	dev-auc:0.999976
+[5300]	val-auc:0.801228	dev-auc:0.999981
+[5400]	val-auc:0.801350	dev-auc:0.999986
+[5500]	val-auc:0.801436	dev-auc:0.999989
+[5600]	val-auc:0.801476	dev-auc:0.999991
+[5700]	val-auc:0.801439	dev-auc:0.999993
+[5800]	val-auc:0.801500	dev-auc:0.999995
+[5900]	val-auc:0.801595	dev-auc:0.999996
+[6000]	val-auc:0.801657	dev-auc:0.999997
+[6100]	val-auc:0.801689	dev-auc:0.999997
+[6200]	val-auc:0.801757	dev-auc:0.999998
+[6300]	val-auc:0.801775	dev-auc:0.999998
+[6400]	val-auc:0.801743	dev-auc:0.999999
+[6500]	val-auc:0.801762	dev-auc:0.999999
+[6600]	val-auc:0.801770	dev-auc:0.999999
+[6700]	val-auc:0.801706	dev-auc:0.999999
+[6800]	val-auc:0.801723	dev-auc:1.000000
+[6900]	val-auc:0.801745	dev-auc:1.000000
+[7000]	val-auc:0.801730	dev-auc:1.000000
+[7100]	val-auc:0.801713	dev-auc:1.000000
+[7200]	val-auc:0.801750	dev-auc:1.000000
+[7300]	val-auc:0.801743	dev-auc:1.000000
+Stopping. Best iteration: 6378Best XGB score: 0.801843
+
+Best XGB iteration: 6378
+AUC val: 0.8018427 std: NA
+AUC dev: 0.9999987
+Read 6807846 rows and 1 (of 1) columns from 0.348 GB file in 00:00:07
+Saving 7.92 x 6.35 in image
+Scoring test set.
+[1] "Generating predictions on test set:"
+Written submission score 0.8018427 to submissions/subm_0_801843_20151016_194230.csv
+[1] "Generating predictions on train set:"
+Written previous train scores 0.8018427 to submissions/train_0_801843_20151016_194230.csv
+Duration: 687.8767 minutes
+Warning message:
+In xgb.train(nrounds = get("nrounds"), params = xgbParams, data = xgtrain,  :
+  Only the first data set in watchlist is used for early stopping process.

@@ -112,7 +112,7 @@ if (!exists("settings")) {
 # NOTE: make sure to do both consistently for same size runs!!
 
 considerPreviousScores <- T
-includePreviousScores <- T
+includePreviousScores <- F
 
 if (considerPreviousScores) {
   if (includePreviousScores) {
@@ -166,18 +166,20 @@ if (considerPreviousScores) {
   if (includePreviousScores) {
     if (file.exists("prevscores")) {
       # Include previous scores - really only works for full data set
-      prev_train <- fread("prevscores/prev_train.csv")
-      prev_test  <- fread("prevscores/prev_test.csv")
+      prev1_train <- fread("prevscores/train_xgb_linear.csv", drop=c("ID"))
+      colnames(prev1_train)[ncol(prev1_train)] <- "prev1"
+      prev1_test <- fread("prevscores/test_xgb_linear.csv", drop=c("ID"))
+      colnames(prev1_test)[ncol(prev1_test)] <- "prev1"
         
-      if (nrow(prev_train) == nrow(train) & nrow(prev_test) == nrow(test)) {
-        train <- cbind(train, prev_train)
-        test <- cbind(test, prev_test)
+      if (nrow(prev1_train) == nrow(train) & nrow(prev1_test) == nrow(test)) {
+        train <- cbind(train, prev1_train)
+        test <- cbind(test, prev1_test)
       } else {
         print("!!!!! previous scores not same length as current datasets - skipping")
         print(dim(train))
-        print(dim(prev_train))
+        print(dim(prev1_train))
         print(dim(test))
-        print(dim(prev_test))
+        print(dim(prev1_test))
       }
     } else {
       print("!!!!! previous scores not available - skipping")
