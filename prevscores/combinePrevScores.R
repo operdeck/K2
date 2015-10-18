@@ -6,13 +6,11 @@ prev_gbm_train <- fread("gbm/scores_train.csv")
 prev_xgb_linear_test <- fread("xgb_linear/subm.csv")
 prev_xgb_linear_train <- fread("xgb_linear/train.csv")
 
-prev_test <- data.frame(
-#   prev_gbm=prev_gbm_test$target
+prev_test <- data.frame(prev_gbm=prev_gbm_test$target,
                         prev_xgb=prev_xgb_linear_test$target
                         )
 
-prev_train <- data.frame(
-#   prev_gbm=prev_gbm_train$Prediction
+prev_train <- data.frame(prev_gbm=prev_gbm_train$Prediction,
                          prev_xgb=prev_xgb_linear_train$prevScore
                          )
 print(dim(prev_test)) # should have 14532 rows

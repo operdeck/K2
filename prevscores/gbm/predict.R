@@ -13,13 +13,8 @@ library(plyr)
 library(dplyr)
 library(pROC)
 
-# TODO: use xgboost vs gbm
-# See 
-# https://www.kaggle.com/michaelpawlus/springleaf-marketing-response/xgboost-example-0-76178
-# https://www.kaggle.com/michaelpawlus/springleaf-marketing-response/xgboost-example-0-76178/discussion
-
-macWD <- "~/Documents/science/kaggle/springleaf/K2"
-winWD <- "D:/usr/science/kaggle/springleaf/K2"
+macWD <- "~/Documents/science/kaggle/springleaf/K2/prevscores/gbm"
+winWD <- "D:/usr/science/kaggle/springleaf/K2/prevscores/gbm"
 if (file.exists(macWD)) {
   setwd(macWD)
 } else {
@@ -38,15 +33,15 @@ epoch <- now()
 # Read Data
 ###########################
 
-train <- fread("./data/train-2.csv", header = T, sep = ",",stringsAsFactors=F,integer64="double",data.table=F)
-test <- fread("./data/test-2.csv", header = T, sep = ",",stringsAsFactors=F,integer64="double",data.table=F)
+train <- fread("../../data/train-2.csv", header = T, sep = ",",stringsAsFactors=F,integer64="double",data.table=F)
+test <- fread("../../data/test-2.csv", header = T, sep = ",",stringsAsFactors=F,integer64="double",data.table=F)
 
 if (useSample) { # speed up things
   train <- sample_frac(train, 0.20)
   test <- sample_frac(test, 0.20)
 }
 
-trainIndex <- createDataPartition(train$target, p=0.80, list=FALSE)
+trainIndex <- createDataPartition(train$target, p=0.90, list=FALSE)
 train_dev <- train[ trainIndex,]
 train_val <- train[-trainIndex,]
 
@@ -267,14 +262,16 @@ cat('Validation set AUC:', auc(train_val$target, predictions), fill=T )
 
 if (!useSample) {
   print("Scoring test set")
+  print(dim(test))
   pr <- predict(model, test, best.iter, type="response")
-  
-  subm <- data.frame(test$ID, pr)
-  colnames(subm) <- c('ID','target')
+  subm <- data.frame(ID=test$ID, target=pr)
   write.csv(subm, "./submission.csv", row.names=FALSE)
 
   print("Scoring train set (for previous scores)")
-  pr <- predict(model, train, best.iter, type="response")
+  print(dim(train))
+  #T merge train_val + train_dev and order using ID from train
+  scoreDS <- left_join(data.frame(ID=train$ID), rbind(train_dev, train_val))
+  pr <- predict(model, scoreDS, best.iter, type="response")
   scores_train <- data.frame(Prediction=pr)
   write.csv(scores_train, "./scores_train.csv", row.names=FALSE)
   
